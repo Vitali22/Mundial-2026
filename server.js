@@ -1,5 +1,6 @@
 const fs = require("fs");
 const http = require("http");
+const os = require("os");
 const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 
@@ -9,6 +10,7 @@ const publicDir = path.join(__dirname, "public");
 const db = new DatabaseSync(path.join(__dirname, "database.db"));
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
 const COMPETITION_CACHE_MINUTES = Number(process.env.COMPETITION_CACHE_MINUTES || 180);
 const MOCK_SEED_VERSION = "world-cup-2026-v2";
 const API_CACHE_VERSION = "v11";
@@ -147,9 +149,20 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Mundial Dashboard listo en http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  const urls = [`http://localhost:${PORT}`];
+  getLocalNetworkUrls(PORT).forEach((url) => urls.push(url));
+  console.log(`Mundial Dashboard listo en ${urls.join(" | ")}`);
 });
+
+function getLocalNetworkUrls(port) {
+  const interfaces = os.networkInterfaces();
+  return Object.values(interfaces)
+    .flat()
+    .filter(Boolean)
+    .filter((item) => item.family === "IPv4" && !item.internal)
+    .map((item) => `http://${item.address}:${port}`);
+}
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, ".env");
