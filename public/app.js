@@ -75,7 +75,7 @@ function renderTournament(data) {
     .join("");
 
   renderTables(data);
-  renderFinals(data.bracket || []);
+  renderFinals(data.bracket || [], data.standings || []);
 }
 
 function renderTables(data) {
@@ -207,22 +207,25 @@ function renderCompetitionTable(rows) {
   `;
 }
 
-function renderFinals(rounds) {
+function renderFinals(rounds, standings = []) {
   if (!rounds.length) {
     finalsContainer.innerHTML = `<p class="empty-state">No hay fase final disponible todavia.</p>`;
     return;
   }
 
+  const rankMap = buildRankMap(standings);
+  const maxMatches = Math.max(...rounds.map((round) => round.matches.length), 1);
+
   finalsContainer.innerHTML = rounds
     .map(
       (round, index) => `
-        <section class="bracket-column">
+        <section class="bracket-column ${index === rounds.length - 1 ? "final-round" : ""}" style="--max-matches: ${maxMatches}; --matches: ${round.matches.length};">
           <div class="round-heading">
             <span>${index + 1}</span>
             <h3>${escapeHtml(round.label)}</h3>
           </div>
           <div class="bracket-lane">
-            ${round.matches.map((match, matchIndex) => renderMatchCard(match, matchIndex)).join("")}
+            ${round.matches.map((match, matchIndex) => renderMatchCard(match, matchIndex, rankMap)).join("")}
           </div>
         </section>
       `
@@ -230,35 +233,54 @@ function renderFinals(rounds) {
     .join("");
 }
 
-function renderMatchCard(match, index) {
-  const aggregateText =
-    match.aggregateHomeGoals !== undefined
-      ? `${formatGoal(match.aggregateHomeGoals)} - ${formatGoal(match.aggregateAwayGoals)}`
-      : `${formatGoal(match.homeGoals)} - ${formatGoal(match.awayGoals)}`;
+function renderMatchCard(match, index, rankMap) {
+  const hasAggregate =
+    match.aggregateHomeGoals !== undefined &&
+    match.aggregateHomeGoals !== null &&
+    match.aggregateAwayGoals !== null;
+  const aggregateText = hasAggregate
+    ? `${formatGoal(match.aggregateHomeGoals)} - ${formatGoal(match.aggregateAwayGoals)}`
+    : null;
+  const metaLine = buildMatchMeta(match, aggregateText);
 
   return `
-    <article class="bracket-card">
+    <article class="bracket-card ${match.placeholder ? "placeholder" : ""}">
       <div class="match-topline">
-        <span>Partido ${index + 1}</span>
+        <span>Llave ${index + 1}</span>
         <span class="status ${match.status}">${formatStatus(match.status)}</span>
       </div>
       <div class="match-teams">
         <div class="match-team">
-          ${renderTeamName(match.homeTeam, match.homeLogo)}
+          ${renderBracketTeam(match.homeTeam, match.homeLogo, rankMap)}
           <span class="score">${formatGoal(match.homeGoals)}</span>
         </div>
         <div class="match-team">
-          ${renderTeamName(match.awayTeam, match.awayLogo)}
+          ${renderBracketTeam(match.awayTeam, match.awayLogo, rankMap)}
           <span class="score">${formatGoal(match.awayGoals)}</span>
         </div>
       </div>
-      <div class="match-meta">
-        <strong>Global ${aggregateText}</strong>
-        <span>${escapeHtml(match.legLabel || "")}</span>
-        <span>${match.matchTime ? formatDate(match.matchTime) : "Por definir"}</span>
-      </div>
+      ${metaLine}
       ${renderLegs(match.legs || [])}
     </article>
+  `;
+}
+
+function buildMatchMeta(match, aggregateText) {
+  if (match.placeholder) {
+    return `
+      <div class="match-meta">
+        <strong>Cruce pendiente</strong>
+        <span>${escapeHtml(match.legLabel || "Por definir")}</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="match-meta">
+      ${aggregateText ? `<strong>Global ${aggregateText}</strong>` : `<strong>Serie en juego</strong>`}
+      <span>${escapeHtml(match.legLabel || "")}</span>
+      <span>${match.matchTime ? formatDate(match.matchTime) : "Por definir"}</span>
+    </div>
   `;
 }
 
@@ -266,7 +288,8 @@ function renderLegs(legs) {
   if (!legs.length) return "";
 
   return `
-    <div class="leg-list">
+    <details class="leg-list">
+      <summary>Ida / vuelta</summary>
       ${legs
         .map(
           (leg, index) => `
@@ -278,8 +301,43 @@ function renderLegs(legs) {
           `
         )
         .join("")}
-    </div>
+    </details>
   `;
+}
+
+function buildRankMap(standings) {
+  const rows = standings.flat ? standings.flat() : [];
+  return Object.fromEntries(
+    rows.map((row) => [normalizeText(row.team), row.rank]).filter(([, rank]) => rank)
+  );
+}
+
+function renderBracketTeam(name, logo, rankMap) {
+  const rank = rankMap[normalizeText(name)];
+  const seed = rank ? `<span class="seed-badge">${rank}°</span>` : "";
+  return `
+    <span class="bracket-team-cell">
+      ${renderTeamIcon(name, logo)}
+      <strong>${escapeHtml(name || "Por definir")}</strong>
+      ${seed}
+    </span>
+  `;
+}
+
+function renderTeamIcon(name, logo) {
+  if (logo) {
+    return `<img class="team-logo" src="${escapeHtml(logo)}" alt="" loading="lazy" />`;
+  }
+
+  const initials = String(name || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  return `<span class="team-initials">${escapeHtml(initials || "?")}</span>`;
 }
 
 function renderTeamName(name, logo) {
@@ -288,6 +346,13 @@ function renderTeamName(name, logo) {
     : `<span class="flag">--</span>`;
 
   return `<span class="team-cell">${image}${escapeHtml(name || "Por definir")}</span>`;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function groupLetter(index) {

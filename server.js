@@ -11,7 +11,7 @@ const db = new DatabaseSync(path.join(__dirname, "database.db"));
 const PORT = Number(process.env.PORT || 3000);
 const COMPETITION_CACHE_MINUTES = Number(process.env.COMPETITION_CACHE_MINUTES || 180);
 const MOCK_SEED_VERSION = "world-cup-2026-v2";
-const API_CACHE_VERSION = "v4";
+const API_CACHE_VERSION = "v6";
 const TOURNAMENTS = {
   worldcup: {
     key: "worldcup",
@@ -1319,15 +1319,30 @@ function isFinalPhaseRound(competition, round = "") {
 function groupFixturesByRound(fixtures, competition) {
   const groups = new Map();
   fixtures.forEach((fixture) => {
-    const round = fixture.round || "Fase final";
-    if (!groups.has(round)) groups.set(round, []);
-    groups.get(round).push(fixture);
+    const roundKey = normalizeBracketRoundKey(competition, fixture.round);
+    if (!roundKey) return;
+    if (!groups.has(roundKey)) groups.set(roundKey, []);
+    groups.get(roundKey).push(fixture);
   });
 
-  return [...groups.entries()].map(([label, matches]) => ({
-    label,
-    matches: buildSeries(matches, competition, label)
-  }));
+  const schema = getBracketSchema(competition, [...groups.keys()]);
+
+  return schema.map((round) => {
+    const roundFixtures = groups.get(round.key) || [];
+    const series = roundFixtures.length
+      ? buildSeries(roundFixtures, competition, round.label)
+      : [];
+
+    const matches = Array.from({ length: round.slots }, (_, index) =>
+      series[index] || buildPlaceholderSeries(round, index)
+    );
+
+    return {
+      key: round.key,
+      label: round.label,
+      matches
+    };
+  });
 }
 
 function buildSeries(fixtures, competition, roundLabel) {
@@ -1427,86 +1442,111 @@ function getLegLabel(series, expectedLegs) {
   return "Serie completa";
 }
 
+function getBracketSchema(competition, existingRoundKeys = []) {
+  const schemas = {
+    worldcup: [
+      { key: "dieciseisavos", label: "Dieciseisavos", slots: 16 },
+      { key: "octavos", label: "Octavos de final", slots: 8 },
+      { key: "cuartos", label: "Cuartos de final", slots: 4 },
+      { key: "semifinal", label: "Semifinales", slots: 2 },
+      { key: "final", label: "Final", slots: 1 },
+      { key: "tercer_lugar", label: "Tercer lugar", slots: 1 }
+    ],
+    champions: [
+      { key: "cuartos", label: "Cuartos de final", slots: 4 },
+      { key: "semifinal", label: "Semifinales", slots: 2 },
+      { key: "final", label: "Final", slots: 1 }
+    ],
+    ligamx: [
+      { key: "cuartos", label: "Cuartos de final", slots: 4 },
+      { key: "semifinal", label: "Semifinales", slots: 2 },
+      { key: "final", label: "Final", slots: 1 }
+    ]
+  };
+
+  return schemas[competition.type] || [];
+}
+
+function normalizeBracketRoundKey(competition, round = "") {
+  const value = String(round).toLowerCase();
+
+  if (competition.type === "worldcup") {
+    if (value.includes("round of 32") || value.includes("dieciseis")) return "dieciseisavos";
+    if (value.includes("round of 16") || value.includes("octavos")) return "octavos";
+    if (value.includes("quarter") || value.includes("cuartos")) return "cuartos";
+    if (value.includes("semi")) return "semifinal";
+    if (value.includes("3rd") || value.includes("third")) return "tercer_lugar";
+    if (/\bfinal\b/.test(value)) return "final";
+    return null;
+  }
+
+  if (value.includes("quarter") || value.includes("cuartos")) return "cuartos";
+  if (value.includes("semi")) return "semifinal";
+  if (/\bfinal\b/.test(value) && !value.includes("semi")) return "final";
+  return null;
+}
+
+function buildPlaceholderSeries(round, index) {
+  const [homeTeam, awayTeam] = getPlaceholderTeamsForRound(round, index);
+  return placeholderMatch(homeTeam, awayTeam, {
+    round: round.label,
+    status: "pendiente",
+    legLabel: "Cruce por definir",
+    placeholder: true
+  });
+}
+
+function getPlaceholderTeamsForRound(round, index) {
+  const slot = index + 1;
+  const maps = {
+    dieciseisavos: [`Clasificado ${slot * 2 - 1}`, `Clasificado ${slot * 2}`],
+    octavos: [`Ganador D32 ${slot * 2 - 1}`, `Ganador D32 ${slot * 2}`],
+    cuartos: [`Ganador llave ${slot * 2 - 1}`, `Ganador llave ${slot * 2}`],
+    semifinal: [`Ganador llave ${slot * 2 - 1}`, `Ganador llave ${slot * 2}`],
+    final: ["Ganador llave 1", "Ganador llave 2"],
+    tercer_lugar: ["Perdedor semi 1", "Perdedor semi 2"]
+  };
+
+  if (round.key === "semifinal" && round.slots === 2) {
+    return slot === 1
+      ? ["Ganador llave 1", "Ganador llave 4"]
+      : ["Ganador llave 2", "Ganador llave 3"];
+  }
+
+  return maps[round.key] || ["Por definir", "Por definir"];
+}
+
 function buildChampionsProjection(rows) {
-  const byRank = Object.fromEntries(rows.map((row) => [row.rank, row]));
-  return [
-    {
-      label: "Directos a octavos",
-      matches: Array.from({ length: 8 }, (_, index) =>
-        placeholderMatch(`Seed ${index + 1}`, byRank[index + 1]?.team || `Puesto ${index + 1}`)
-      )
-    },
-    {
-      label: "Play-off 9-24",
-      matches: Array.from({ length: 8 }, (_, index) =>
-        placeholderMatch(
-          byRank[9 + index]?.team || `Puesto ${9 + index}`,
-          byRank[24 - index]?.team || `Puesto ${24 - index}`
-        )
-      )
-    },
-    {
-      label: "Octavos a final",
-      matches: [
-        placeholderMatch("Ganador play-off", "Top 8 sembrado"),
-        placeholderMatch("Ganador semifinal 1", "Ganador semifinal 2")
-      ]
-    }
-  ];
+  return getBracketSchema({ type: "champions" }).map((round) => ({
+    key: round.key,
+    label: round.label,
+    matches: Array.from({ length: round.slots }, (_, index) =>
+      buildPlaceholderSeries(round, index)
+    )
+  }));
 }
 
 function buildLigaMxProjection(rows) {
-  const byRank = Object.fromEntries(rows.map((row) => [row.rank, row]));
-  return [
-    {
-      label: "Cuartos de final",
-      matches: [
-        placeholderMatch(byRank[1]?.team || "1°", byRank[8]?.team || "8°"),
-        placeholderMatch(byRank[2]?.team || "2°", byRank[7]?.team || "7°"),
-        placeholderMatch(byRank[3]?.team || "3°", byRank[6]?.team || "6°"),
-        placeholderMatch(byRank[4]?.team || "4°", byRank[5]?.team || "5°")
-      ]
-    },
-    {
-      label: "Semifinales",
-      matches: [
-        placeholderMatch("Ganador QF 1", "Ganador QF 4"),
-        placeholderMatch("Ganador QF 2", "Ganador QF 3")
-      ]
-    },
-    {
-      label: "Final",
-      matches: [placeholderMatch("Ganador SF 1", "Ganador SF 2")]
-    }
-  ];
+  return getBracketSchema({ type: "ligamx" }).map((round) => ({
+    key: round.key,
+    label: round.label,
+    matches: Array.from({ length: round.slots }, (_, index) =>
+      buildPlaceholderSeries(round, index)
+    )
+  }));
 }
 
 function buildWorldCupProjection() {
-  return [
-    {
-      label: "Dieciseisavos",
-      matches: Array.from({ length: 16 }, (_, index) =>
-        placeholderMatch(`Clasificado ${index * 2 + 1}`, `Clasificado ${index * 2 + 2}`)
-      )
-    },
-    {
-      label: "Octavos",
-      matches: Array.from({ length: 8 }, (_, index) =>
-        placeholderMatch(`Ganador D32 ${index * 2 + 1}`, `Ganador D32 ${index * 2 + 2}`)
-      )
-    },
-    {
-      label: "Cuartos / Semis / Final",
-      matches: [
-        placeholderMatch("Ganador QF 1", "Ganador QF 2"),
-        placeholderMatch("Ganador SF 1", "Ganador SF 2"),
-        placeholderMatch("Perdedor SF 1", "Perdedor SF 2")
-      ]
-    }
-  ];
+  return getBracketSchema({ type: "worldcup" }).map((round) => ({
+    key: round.key,
+    label: round.label,
+    matches: Array.from({ length: round.slots }, (_, index) =>
+      buildPlaceholderSeries(round, index)
+    )
+  }));
 }
 
-function placeholderMatch(homeTeam, awayTeam) {
+function placeholderMatch(homeTeam, awayTeam, overrides = {}) {
   return {
     id: `${homeTeam}-${awayTeam}`,
     round: "Proyeccion",
@@ -1517,7 +1557,12 @@ function placeholderMatch(homeTeam, awayTeam) {
     homeGoals: null,
     awayGoals: null,
     matchTime: null,
-    status: "pendiente"
+    status: "pendiente",
+    aggregateHomeGoals: null,
+    aggregateAwayGoals: null,
+    legs: [],
+    placeholder: true,
+    ...overrides
   };
 }
 
