@@ -11,7 +11,7 @@ const db = new DatabaseSync(path.join(__dirname, "database.db"));
 const PORT = Number(process.env.PORT || 3000);
 const COMPETITION_CACHE_MINUTES = Number(process.env.COMPETITION_CACHE_MINUTES || 180);
 const MOCK_SEED_VERSION = "world-cup-2026-v2";
-const API_CACHE_VERSION = "v6";
+const API_CACHE_VERSION = "v8";
 const TOURNAMENTS = {
   worldcup: {
     key: "worldcup",
@@ -1287,11 +1287,11 @@ function buildFinalPhase(competition, apiData) {
     isFinalPhaseRound(competition, fixture.round)
   );
 
+  const rows = apiData.standings?.[0] || [];
   if (fixtures.length) {
-    return groupFixturesByRound(fixtures, competition);
+    return groupFixturesByRound(fixtures, competition, rows);
   }
 
-  const rows = apiData.standings?.[0] || [];
   if (competition.type === "champions") {
     return buildChampionsProjection(rows);
   }
@@ -1316,7 +1316,7 @@ function isFinalPhaseRound(competition, round = "") {
   return /play.?in|reclassification|quarter|semi|final|cuartos|semifinal|liguilla/.test(value);
 }
 
-function groupFixturesByRound(fixtures, competition) {
+function groupFixturesByRound(fixtures, competition, rows = []) {
   const groups = new Map();
   fixtures.forEach((fixture) => {
     const roundKey = normalizeBracketRoundKey(competition, fixture.round);
@@ -1330,11 +1330,11 @@ function groupFixturesByRound(fixtures, competition) {
   return schema.map((round) => {
     const roundFixtures = groups.get(round.key) || [];
     const series = roundFixtures.length
-      ? buildSeries(roundFixtures, competition, round.label)
+      ? buildSeries(roundFixtures, competition, round.label, rows)
       : [];
 
     const matches = Array.from({ length: round.slots }, (_, index) =>
-      series[index] || buildPlaceholderSeries(round, index)
+      series[index] || buildPlaceholderSeries(round, index, competition, rows)
     );
 
     return {
@@ -1345,8 +1345,13 @@ function groupFixturesByRound(fixtures, competition) {
   });
 }
 
-function buildSeries(fixtures, competition, roundLabel) {
+function buildSeries(fixtures, competition, roundLabel, rows = []) {
   const seriesByPair = new Map();
+  const logosByTeam = Object.fromEntries(
+    rows
+      .filter((row) => row.logo)
+      .map((row) => [normalizeTeamName(row.team), row.logo])
+  );
   const sortedFixtures = fixtures.sort(
     (a, b) => new Date(a.matchTime || 0) - new Date(b.matchTime || 0)
   );
@@ -1359,8 +1364,8 @@ function buildSeries(fixtures, competition, roundLabel) {
         round: fixture.round,
         homeTeam: fixture.homeTeam,
         awayTeam: fixture.awayTeam,
-        homeLogo: fixture.homeLogo,
-        awayLogo: fixture.awayLogo,
+        homeLogo: fixture.homeLogo || logosByTeam[normalizeTeamName(fixture.homeTeam)] || null,
+        awayLogo: fixture.awayLogo || logosByTeam[normalizeTeamName(fixture.awayTeam)] || null,
         homeGoals: fixture.homeGoals,
         awayGoals: fixture.awayGoals,
         aggregateHomeGoals: 0,
@@ -1403,7 +1408,7 @@ function buildSeries(fixtures, competition, roundLabel) {
     const nextLeg = series.legs.find(
       (leg) => leg.homeGoals === null || leg.awayGoals === null
     );
-    if (nextLeg && series.status !== "terminado") {
+    if (nextLeg) {
       series.matchTime = nextLeg.matchTime;
       series.status = "pendiente";
     }
@@ -1453,6 +1458,8 @@ function getBracketSchema(competition, existingRoundKeys = []) {
       { key: "tercer_lugar", label: "Tercer lugar", slots: 1 }
     ],
     champions: [
+      { key: "playoff", label: "Play-off", slots: 8 },
+      { key: "octavos", label: "Octavos de final", slots: 8 },
       { key: "cuartos", label: "Cuartos de final", slots: 4 },
       { key: "semifinal", label: "Semifinales", slots: 2 },
       { key: "final", label: "Final", slots: 1 }
@@ -1481,14 +1488,16 @@ function normalizeBracketRoundKey(competition, round = "") {
   }
 
   if (value.includes("quarter") || value.includes("cuartos")) return "cuartos";
+  if (value.includes("play-off") || value.includes("playoff") || value.includes("knockout round")) return "playoff";
+  if (value.includes("round of 16") || value.includes("octavos")) return "octavos";
   if (value.includes("semi")) return "semifinal";
   if (/\bfinal\b/.test(value) && !value.includes("semi")) return "final";
   return null;
 }
 
-function buildPlaceholderSeries(round, index) {
-  const [homeTeam, awayTeam] = getPlaceholderTeamsForRound(round, index);
-  return placeholderMatch(homeTeam, awayTeam, {
+function buildPlaceholderSeries(round, index, competition = {}, rows = []) {
+  const [home, away] = getPlaceholderTeamsForRound(round, index, competition, rows);
+  return placeholderMatch(home, away, {
     round: round.label,
     status: "pendiente",
     legLabel: "Cruce por definir",
@@ -1496,8 +1505,40 @@ function buildPlaceholderSeries(round, index) {
   });
 }
 
-function getPlaceholderTeamsForRound(round, index) {
+function getPlaceholderTeamsForRound(round, index, competition = {}, rows = []) {
   const slot = index + 1;
+  const byRank = Object.fromEntries(rows.map((row) => [row.rank, row]));
+
+  if (competition.type === "champions") {
+    if (round.key === "playoff") {
+      return [
+        teamSlot(byRank[9 + index], `Puesto ${9 + index}`),
+        teamSlot(byRank[24 - index], `Puesto ${24 - index}`)
+      ];
+    }
+
+    if (round.key === "octavos") {
+      return [
+        teamSlot(byRank[index + 1], `Clasificado ${index + 1}`),
+        teamSlot(null, `Ganador play-off ${index + 1}`)
+      ];
+    }
+  }
+
+  if (competition.type === "ligamx" && round.key === "cuartos") {
+    const pairs = [
+      [1, 8],
+      [2, 7],
+      [3, 6],
+      [4, 5]
+    ];
+    const [homeRank, awayRank] = pairs[index] || [];
+    return [
+      teamSlot(byRank[homeRank], `${homeRank || "?"}`),
+      teamSlot(byRank[awayRank], `${awayRank || "?"}`)
+    ];
+  }
+
   const maps = {
     dieciseisavos: [`Clasificado ${slot * 2 - 1}`, `Clasificado ${slot * 2}`],
     octavos: [`Ganador D32 ${slot * 2 - 1}`, `Ganador D32 ${slot * 2}`],
@@ -1508,12 +1549,22 @@ function getPlaceholderTeamsForRound(round, index) {
   };
 
   if (round.key === "semifinal" && round.slots === 2) {
-    return slot === 1
+    const values = slot === 1
       ? ["Ganador llave 1", "Ganador llave 4"]
       : ["Ganador llave 2", "Ganador llave 3"];
+    return values.map((team) => teamSlot(null, team));
   }
 
-  return maps[round.key] || ["Por definir", "Por definir"];
+  return (maps[round.key] || ["Por definir", "Por definir"]).map((team) =>
+    teamSlot(null, team)
+  );
+}
+
+function teamSlot(row, fallback) {
+  return {
+    name: row?.team || fallback,
+    logo: row?.logo || null
+  };
 }
 
 function buildChampionsProjection(rows) {
@@ -1521,7 +1572,7 @@ function buildChampionsProjection(rows) {
     key: round.key,
     label: round.label,
     matches: Array.from({ length: round.slots }, (_, index) =>
-      buildPlaceholderSeries(round, index)
+      buildPlaceholderSeries(round, index, { type: "champions" }, rows)
     )
   }));
 }
@@ -1531,7 +1582,7 @@ function buildLigaMxProjection(rows) {
     key: round.key,
     label: round.label,
     matches: Array.from({ length: round.slots }, (_, index) =>
-      buildPlaceholderSeries(round, index)
+      buildPlaceholderSeries(round, index, { type: "ligamx" }, rows)
     )
   }));
 }
@@ -1541,19 +1592,19 @@ function buildWorldCupProjection() {
     key: round.key,
     label: round.label,
     matches: Array.from({ length: round.slots }, (_, index) =>
-      buildPlaceholderSeries(round, index)
+      buildPlaceholderSeries(round, index, { type: "worldcup" })
     )
   }));
 }
 
 function placeholderMatch(homeTeam, awayTeam, overrides = {}) {
   return {
-    id: `${homeTeam}-${awayTeam}`,
+    id: `${getTeamSlotName(homeTeam)}-${getTeamSlotName(awayTeam)}`,
     round: "Proyeccion",
-    homeTeam,
-    awayTeam,
-    homeLogo: null,
-    awayLogo: null,
+    homeTeam: getTeamSlotName(homeTeam),
+    awayTeam: getTeamSlotName(awayTeam),
+    homeLogo: homeTeam?.logo || null,
+    awayLogo: awayTeam?.logo || null,
     homeGoals: null,
     awayGoals: null,
     matchTime: null,
@@ -1564,6 +1615,10 @@ function placeholderMatch(homeTeam, awayTeam, overrides = {}) {
     placeholder: true,
     ...overrides
   };
+}
+
+function getTeamSlotName(team) {
+  return typeof team === "string" ? team : team?.name || "Por definir";
 }
 
 function buildVerifiedWorldCupSnapshot() {

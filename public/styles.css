@@ -609,7 +609,7 @@ td:nth-child(2) {
 
 .bracket-team-cell {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -622,30 +622,21 @@ td:nth-child(2) {
   white-space: nowrap;
 }
 
-.team-initials,
-.seed-badge {
+.team-initials {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
   font-weight: 950;
 }
 
 .team-initials {
   width: 28px;
   height: 28px;
+  border: 1px solid rgba(56, 189, 248, 0.42);
   background: #172a45;
   color: #e7f2ff;
   font-size: 0.7rem;
-}
-
-.seed-badge {
-  min-width: 30px;
-  height: 24px;
-  padding: 0 5px;
-  background: #38bdf8;
-  color: #061827;
-  font-size: 0.78rem;
+  clip-path: polygon(50% 0, 88% 16%, 82% 78%, 50% 100%, 18% 78%, 12% 16%);
 }
 
 .status {

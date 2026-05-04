@@ -213,7 +213,6 @@ function renderFinals(rounds, standings = []) {
     return;
   }
 
-  const rankMap = buildRankMap(standings);
   const maxMatches = Math.max(...rounds.map((round) => round.matches.length), 1);
 
   finalsContainer.innerHTML = rounds
@@ -225,7 +224,7 @@ function renderFinals(rounds, standings = []) {
             <h3>${escapeHtml(round.label)}</h3>
           </div>
           <div class="bracket-lane">
-            ${round.matches.map((match, matchIndex) => renderMatchCard(match, matchIndex, rankMap)).join("")}
+            ${round.matches.map((match, matchIndex) => renderMatchCard(match, matchIndex)).join("")}
           </div>
         </section>
       `
@@ -233,7 +232,7 @@ function renderFinals(rounds, standings = []) {
     .join("");
 }
 
-function renderMatchCard(match, index, rankMap) {
+function renderMatchCard(match, index) {
   const hasAggregate =
     match.aggregateHomeGoals !== undefined &&
     match.aggregateHomeGoals !== null &&
@@ -251,11 +250,11 @@ function renderMatchCard(match, index, rankMap) {
       </div>
       <div class="match-teams">
         <div class="match-team">
-          ${renderBracketTeam(match.homeTeam, match.homeLogo, rankMap)}
+          ${renderBracketTeam(match.homeTeam, match.homeLogo)}
           <span class="score">${formatGoal(match.homeGoals)}</span>
         </div>
         <div class="match-team">
-          ${renderBracketTeam(match.awayTeam, match.awayLogo, rankMap)}
+          ${renderBracketTeam(match.awayTeam, match.awayLogo)}
           <span class="score">${formatGoal(match.awayGoals)}</span>
         </div>
       </div>
@@ -305,21 +304,11 @@ function renderLegs(legs) {
   `;
 }
 
-function buildRankMap(standings) {
-  const rows = standings.flat ? standings.flat() : [];
-  return Object.fromEntries(
-    rows.map((row) => [normalizeText(row.team), row.rank]).filter(([, rank]) => rank)
-  );
-}
-
-function renderBracketTeam(name, logo, rankMap) {
-  const rank = rankMap[normalizeText(name)];
-  const seed = rank ? `<span class="seed-badge">${rank}°</span>` : "";
+function renderBracketTeam(name, logo) {
   return `
     <span class="bracket-team-cell">
       ${renderTeamIcon(name, logo)}
       <strong>${escapeHtml(name || "Por definir")}</strong>
-      ${seed}
     </span>
   `;
 }
@@ -346,13 +335,6 @@ function renderTeamName(name, logo) {
     : `<span class="flag">--</span>`;
 
   return `<span class="team-cell">${image}${escapeHtml(name || "Por definir")}</span>`;
-}
-
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function groupLetter(index) {
