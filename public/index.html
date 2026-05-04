@@ -29,6 +29,7 @@
         <div class="sync-panel">
           <p id="provider-status">Fuente: TheSportsDB</p>
           <p id="last-update">Ultima actualizacion: cargando...</p>
+          <div id="update-history" class="update-history"></div>
           <button id="refresh-button" type="button">Actualizar torneo</button>
         </div>
       </aside>
@@ -51,6 +52,9 @@
             <button class="view-tab" type="button" data-panel="finals-panel">
               Fase final
             </button>
+            <button class="view-tab" type="button" data-panel="schedule-panel">
+              Calendario
+            </button>
           </div>
 
           <section id="table-panel" class="tournament-panel active">
@@ -60,11 +64,22 @@
           <section id="finals-panel" class="tournament-panel">
             <div id="finals-container" class="finals-board" aria-live="polite"></div>
           </section>
+
+          <section id="schedule-panel" class="tournament-panel">
+            <div id="schedule-container" aria-live="polite"></div>
+          </section>
         </section>
       </main>
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="match-modal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-modal></div>
+      <article class="modal-card" role="dialog" aria-modal="true" aria-labelledby="match-modal-title">
+        <button class="modal-close" type="button" data-close-modal aria-label="Cerrar">x</button>
+        <div id="match-modal-content"></div>
+      </article>
+    </div>
 
     <script src="/app.js"></script>
   </body>
