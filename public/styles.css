@@ -217,6 +217,26 @@ button:disabled {
   gap: 18px;
 }
 
+.group-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.group-selector button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.group-selector button.active,
+.group-selector button:hover {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
 .group-card,
 .match-card {
   border: 1px solid var(--line);
@@ -481,6 +501,35 @@ td:nth-child(2) {
 
 .match-meta strong {
   color: var(--text);
+}
+
+.leg-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.leg-row {
+  display: grid;
+  gap: 3px;
+}
+
+.leg-row span {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.leg-row strong {
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.leg-row small {
+  color: var(--muted);
 }
 
 .status {

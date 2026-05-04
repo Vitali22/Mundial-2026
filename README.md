@@ -20,6 +20,8 @@ Dentro de cada torneo puedes cambiar entre:
 - Cache local en SQLite para evitar peticiones innecesarias.
 - Tabla visual con barras de puntos.
 - Fase final, liguilla o eliminatoria segun el torneo.
+- Selector de grupos para el Mundial.
+- Series con ida, vuelta y marcador global cuando el torneo lo requiere.
 - Archivo `.bat` para abrir la app con doble clic en Windows.
 - `.gitignore` listo para no subir `.env` ni bases de datos.
 

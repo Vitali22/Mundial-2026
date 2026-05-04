@@ -11,6 +11,7 @@ const tableContainer = document.querySelector("#table-container");
 const finalsContainer = document.querySelector("#finals-container");
 
 let activeTournament = "worldcup";
+const selectedTableIndexes = {};
 
 navButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -83,28 +84,64 @@ function renderTables(data) {
     return;
   }
 
+  const activeIndex = Math.min(
+    selectedTableIndexes[data.key] || 0,
+    groups.length - 1
+  );
+  const visibleGroups = data.key === "worldcup" ? [groups[activeIndex]] : groups;
+
   tableContainer.innerHTML = `
+    ${
+      data.key === "worldcup" && groups.length > 1
+        ? renderGroupSelector(data, groups, activeIndex)
+        : ""
+    }
     <div class="groups-grid">
+      ${visibleGroups
+        .map((rows) => renderGroupCard(data, rows, groups.indexOf(rows)))
+        .join("")}
+    </div>
+  `;
+
+  document.querySelectorAll(".group-selector button").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectedTableIndexes[data.key] = Number(button.dataset.groupIndex);
+      renderTables(data);
+    });
+  });
+}
+
+function renderGroupSelector(data, groups, activeIndex) {
+  return `
+    <div class="group-selector" aria-label="Seleccionar grupo">
       ${groups
         .map(
           (rows, index) => `
-            <article class="group-card">
-              <div class="group-heading">
-                <div>
-                  <span class="group-label">${escapeHtml(rows[0]?.group || "Tabla")}</span>
-                  <h3>${data.key === "worldcup" ? groupLetter(index) : index + 1}</h3>
-                </div>
-                <span class="group-count">${rows.length} equipos</span>
-              </div>
-              <div class="team-bars">
-                ${rows.slice(0, 8).map(renderTeamBar).join("")}
-              </div>
-              ${renderCompetitionTable(rows)}
-            </article>
+            <button class="${index === activeIndex ? "active" : ""}" type="button" data-group-index="${index}">
+              Grupo ${escapeHtml(rows[0]?.group || groupLetter(index))}
+            </button>
           `
         )
         .join("")}
     </div>
+  `;
+}
+
+function renderGroupCard(data, rows, index) {
+  return `
+    <article class="group-card">
+      <div class="group-heading">
+        <div>
+          <span class="group-label">${escapeHtml(rows[0]?.group || "Tabla")}</span>
+          <h3>${data.key === "worldcup" ? rows[0]?.group || groupLetter(index) : index + 1}</h3>
+        </div>
+        <span class="group-count">${rows.length} equipos</span>
+      </div>
+      <div class="team-bars">
+        ${rows.slice(0, Math.min(8, rows.length)).map(renderTeamBar).join("")}
+      </div>
+      ${renderCompetitionTable(rows)}
+    </article>
   `;
 }
 
@@ -193,6 +230,11 @@ function renderFinals(rounds) {
 }
 
 function renderMatchCard(match, index) {
+  const aggregateText =
+    match.aggregateHomeGoals !== undefined
+      ? `${formatGoal(match.aggregateHomeGoals)} - ${formatGoal(match.aggregateAwayGoals)}`
+      : `${formatGoal(match.homeGoals)} - ${formatGoal(match.awayGoals)}`;
+
   return `
     <article class="match-card">
       <div class="match-topline">
@@ -210,10 +252,32 @@ function renderMatchCard(match, index) {
         </div>
       </div>
       <div class="match-meta">
-        <strong>${formatGoal(match.homeGoals)} - ${formatGoal(match.awayGoals)}</strong>
+        <strong>Global ${aggregateText}</strong>
+        <span>${escapeHtml(match.legLabel || "")}</span>
         <span>${match.matchTime ? formatDate(match.matchTime) : "Por definir"}</span>
       </div>
+      ${renderLegs(match.legs || [])}
     </article>
+  `;
+}
+
+function renderLegs(legs) {
+  if (!legs.length) return "";
+
+  return `
+    <div class="leg-list">
+      ${legs
+        .map(
+          (leg, index) => `
+            <div class="leg-row">
+              <span>${index === 0 ? "Ida" : "Vuelta"}</span>
+              <strong>${escapeHtml(leg.homeTeam)} ${formatGoal(leg.homeGoals)} - ${formatGoal(leg.awayGoals)} ${escapeHtml(leg.awayTeam)}</strong>
+              <small>${leg.matchTime ? formatDate(leg.matchTime) : "Por definir"}</small>
+            </div>
+          `
+        )
+        .join("")}
+    </div>
   `;
 }
 

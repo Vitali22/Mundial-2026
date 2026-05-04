@@ -11,6 +11,7 @@ const db = new DatabaseSync(path.join(__dirname, "database.db"));
 const PORT = Number(process.env.PORT || 3000);
 const COMPETITION_CACHE_MINUTES = Number(process.env.COMPETITION_CACHE_MINUTES || 180);
 const MOCK_SEED_VERSION = "world-cup-2026-v2";
+const API_CACHE_VERSION = "v3";
 const TOURNAMENTS = {
   worldcup: {
     key: "worldcup",
@@ -693,10 +694,13 @@ async function fetchAndCacheCompetitionData(competition, provider) {
     sportsDbSeason: config.sportsDbSeason,
     source: "thesportsdb",
     format: buildTournamentFormat(competition),
-    standings: apiData.standings,
+    standings: buildStandings(competition, apiData),
     nextFixtures: apiData.nextFixtures,
     fixtures: apiData.fixtures,
-    bracket: buildFinalPhase(competition, apiData)
+    bracket: buildFinalPhase(competition, {
+      ...apiData,
+      standings: buildStandings(competition, apiData)
+    })
   };
   const updatedAt = new Date().toISOString();
 
@@ -715,7 +719,7 @@ function getCompetitionConfig(competition) {
 
 function getCompetitionCacheKey(competition) {
   const config = getCompetitionConfig(competition);
-  return `competition:thesportsdb:${competition.key}:${config.sportsDbId}:${config.sportsDbSeason}`;
+  return `competition:${API_CACHE_VERSION}:thesportsdb:${competition.key}:${config.sportsDbId}:${config.sportsDbSeason}`;
 }
 
 function getCache(key) {
@@ -880,7 +884,7 @@ class TheSportsDbProvider {
     };
   }
 
-  async request(endpoint) {
+  async request(endpoint, options = {}) {
     const key = process.env.THESPORTSDB_KEY || "123";
     const baseUrl =
       process.env.THESPORTSDB_BASE_URL || "https://www.thesportsdb.com/api/v1/json";
@@ -939,7 +943,9 @@ function normalizeTheSportsDbFixtures(events) {
 
       return {
         id: String(event.idEvent),
-        round: event.intRound ? `Ronda ${event.intRound}` : event.strLeague,
+        round: event.strRound || (event.intRound ? `Ronda ${event.intRound}` : event.strLeague),
+        rawRound: event.strRound || event.intRound || "",
+        group: event.strGroup || null,
         homeTeam: event.strHomeTeam,
         awayTeam: event.strAwayTeam,
         homeLogo: event.strHomeTeamBadge || null,
@@ -951,6 +957,167 @@ function normalizeTheSportsDbFixtures(events) {
       };
     })
     .sort((a, b) => new Date(b.matchTime) - new Date(a.matchTime));
+}
+
+function buildStandings(competition, apiData) {
+  const apiStandings = apiData.standings || [];
+  const fixtureStandings = buildStandingsFromFixtures(
+    competition,
+    apiData.fixtures || []
+  );
+
+  if (competition.type === "worldcup") {
+    return fixtureStandings.length ? fixtureStandings : apiStandings;
+  }
+
+  const apiRows = apiStandings.flat().length;
+  const fixtureRows = fixtureStandings.flat().length;
+
+  if (fixtureRows > apiRows || apiRows < getExpectedMinimumRows(competition)) {
+    return fixtureStandings.length ? fixtureStandings : apiStandings;
+  }
+
+  return apiStandings;
+}
+
+function getExpectedMinimumRows(competition) {
+  if (competition.type === "ligamx") return 8;
+  if (competition.type === "champions") return 24;
+  return 12;
+}
+
+function buildStandingsFromFixtures(competition, fixtures) {
+  const regularFixtures = fixtures.filter(
+    (fixture) => fixture.homeTeam && fixture.awayTeam && !isFinalPhaseRound(competition, fixture.round)
+  );
+  const rowsByGroup = new Map();
+
+  regularFixtures.forEach((fixture) => {
+    const group = getFixtureGroup(competition, fixture);
+    if (!rowsByGroup.has(group)) rowsByGroup.set(group, new Map());
+    const groupRows = rowsByGroup.get(group);
+
+    ensureStandingRow(groupRows, fixture.homeTeam, fixture.homeLogo, group);
+    ensureStandingRow(groupRows, fixture.awayTeam, fixture.awayLogo, group);
+
+    if (fixture.homeGoals === null || fixture.awayGoals === null) return;
+
+    applyStandingResult(
+      groupRows.get(fixture.homeTeam),
+      fixture.homeGoals,
+      fixture.awayGoals
+    );
+    applyStandingResult(
+      groupRows.get(fixture.awayTeam),
+      fixture.awayGoals,
+      fixture.homeGoals
+    );
+  });
+
+  return [...rowsByGroup.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, "es"))
+    .map(([, groupRows]) =>
+      [...groupRows.values()]
+        .map((row) => ({
+          ...row,
+          goalDifference: row.goalsFor - row.goalsAgainst
+        }))
+        .sort(compareStandingRows)
+        .map((row, index) => ({ ...row, rank: index + 1 }))
+    );
+}
+
+function ensureStandingRow(groupRows, team, logo, group) {
+  if (groupRows.has(team)) return;
+
+  groupRows.set(team, {
+    rank: 0,
+    team,
+    logo,
+    played: 0,
+    won: 0,
+    drawn: 0,
+    lost: 0,
+    goalsFor: 0,
+    goalsAgainst: 0,
+    goalDifference: 0,
+    points: 0,
+    form: "",
+    group
+  });
+}
+
+function applyStandingResult(row, goalsFor, goalsAgainst) {
+  row.played += 1;
+  row.goalsFor += goalsFor;
+  row.goalsAgainst += goalsAgainst;
+
+  if (goalsFor > goalsAgainst) {
+    row.won += 1;
+    row.points += 3;
+    row.form += "W";
+  } else if (goalsFor === goalsAgainst) {
+    row.drawn += 1;
+    row.points += 1;
+    row.form += "D";
+  } else {
+    row.lost += 1;
+    row.form += "L";
+  }
+}
+
+function compareStandingRows(a, b) {
+  return (
+    b.points - a.points ||
+    b.goalDifference - a.goalDifference ||
+    b.goalsFor - a.goalsFor ||
+    a.team.localeCompare(b.team, "es")
+  );
+}
+
+function getFixtureGroup(competition, fixture) {
+  if (competition.type === "worldcup") {
+    return (
+      fixture.group ||
+      getWorldCupGroup(fixture.homeTeam) ||
+      getWorldCupGroup(fixture.awayTeam) ||
+      "Grupo"
+    );
+  }
+
+  if (competition.type === "champions") return "Fase liga";
+  return "Tabla general";
+}
+
+function getWorldCupGroup(team = "") {
+  const normalized = normalizeTeamName(team);
+  const groups = {
+    A: ["mexico", "south africa", "south korea", "czech republic"],
+    B: ["canada", "bosnia-herzegovina", "bosnia and herzegovina", "qatar", "switzerland"],
+    C: ["brazil", "morocco", "haiti", "scotland"],
+    D: ["usa", "united states", "paraguay", "australia", "turkey", "turkiye", "türkiye"],
+    E: ["germany", "curacao", "curaçao", "ivory coast", "ecuador"],
+    F: ["netherlands", "japan", "sweden", "tunisia"],
+    G: ["belgium", "egypt", "iran", "new zealand"],
+    H: ["spain", "cape verde", "saudi arabia", "uruguay"],
+    I: ["france", "senegal", "iraq", "norway"],
+    J: ["argentina", "algeria", "austria", "jordan"],
+    K: ["portugal", "dr congo", "rd congo", "uzbekistan", "colombia"],
+    L: ["england", "croatia", "ghana", "panama"]
+  };
+
+  for (const [group, teams] of Object.entries(groups)) {
+    if (teams.some((item) => normalized.includes(item))) return group;
+  }
+
+  return null;
+}
+
+function normalizeTeamName(team) {
+  return String(team)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 function buildTheSportsDbDate(event) {
@@ -1009,7 +1176,7 @@ function buildFinalPhase(competition, apiData) {
   );
 
   if (fixtures.length) {
-    return groupFixturesByRound(fixtures);
+    return groupFixturesByRound(fixtures, competition);
   }
 
   const rows = apiData.standings?.[0] || [];
@@ -1037,7 +1204,7 @@ function isFinalPhaseRound(competition, round = "") {
   return /play.?in|reclassification|quarter|semi|final|cuartos|semifinal|liguilla/.test(value);
 }
 
-function groupFixturesByRound(fixtures) {
+function groupFixturesByRound(fixtures, competition) {
   const groups = new Map();
   fixtures.forEach((fixture) => {
     const round = fixture.round || "Fase final";
@@ -1047,8 +1214,103 @@ function groupFixturesByRound(fixtures) {
 
   return [...groups.entries()].map(([label, matches]) => ({
     label,
-    matches: matches.sort((a, b) => new Date(a.matchTime) - new Date(b.matchTime))
+    matches: buildSeries(matches, competition, label)
   }));
+}
+
+function buildSeries(fixtures, competition, roundLabel) {
+  const seriesByPair = new Map();
+  const sortedFixtures = fixtures.sort(
+    (a, b) => new Date(a.matchTime || 0) - new Date(b.matchTime || 0)
+  );
+
+  sortedFixtures.forEach((fixture) => {
+    const pairKey = getPairKey(fixture.homeTeam, fixture.awayTeam);
+    if (!seriesByPair.has(pairKey)) {
+      seriesByPair.set(pairKey, {
+        id: pairKey,
+        round: fixture.round,
+        homeTeam: fixture.homeTeam,
+        awayTeam: fixture.awayTeam,
+        homeLogo: fixture.homeLogo,
+        awayLogo: fixture.awayLogo,
+        homeGoals: fixture.homeGoals,
+        awayGoals: fixture.awayGoals,
+        aggregateHomeGoals: 0,
+        aggregateAwayGoals: 0,
+        matchTime: fixture.matchTime,
+        status: fixture.status,
+        legs: []
+      });
+    }
+
+    const series = seriesByPair.get(pairKey);
+    series.legs.push(fixture);
+
+    if (fixture.homeGoals !== null && fixture.awayGoals !== null) {
+      if (fixture.homeTeam === series.homeTeam) {
+        series.aggregateHomeGoals += fixture.homeGoals;
+        series.aggregateAwayGoals += fixture.awayGoals;
+      } else {
+        series.aggregateHomeGoals += fixture.awayGoals;
+        series.aggregateAwayGoals += fixture.homeGoals;
+      }
+    }
+
+    const latestPlayed = [...series.legs]
+      .filter((leg) => leg.homeGoals !== null && leg.awayGoals !== null)
+      .at(-1);
+
+    if (latestPlayed) {
+      series.homeGoals =
+        latestPlayed.homeTeam === series.homeTeam
+          ? latestPlayed.homeGoals
+          : latestPlayed.awayGoals;
+      series.awayGoals =
+        latestPlayed.awayTeam === series.awayTeam
+          ? latestPlayed.awayGoals
+          : latestPlayed.homeGoals;
+      series.status = "terminado";
+    }
+
+    const nextLeg = series.legs.find(
+      (leg) => leg.homeGoals === null || leg.awayGoals === null
+    );
+    if (nextLeg && series.status !== "terminado") {
+      series.matchTime = nextLeg.matchTime;
+      series.status = "pendiente";
+    }
+
+    series.expectedLegs = getExpectedLegs(competition, roundLabel);
+    series.legLabel = getLegLabel(series, series.expectedLegs);
+  });
+
+  return [...seriesByPair.values()];
+}
+
+function getPairKey(homeTeam, awayTeam) {
+  return [homeTeam, awayTeam].map(normalizeTeamName).sort().join("__");
+}
+
+function getExpectedLegs(competition, roundLabel = "") {
+  const value = String(roundLabel).toLowerCase();
+  if (competition.type === "worldcup") return 1;
+  if (competition.type === "champions" && value.includes("final")) return 1;
+  return 2;
+}
+
+function getLegLabel(series, expectedLegs) {
+  const played = series.legs.filter(
+    (leg) => leg.homeGoals !== null && leg.awayGoals !== null
+  ).length;
+
+  if (expectedLegs <= 1) {
+    return played ? "Partido unico jugado" : "Partido unico";
+  }
+
+  if (played === 0) return "Ida pendiente";
+  if (played === 1) return "Ida jugada / vuelta pendiente";
+  return "Serie completa";
 }
 
 function buildChampionsProjection(rows) {
