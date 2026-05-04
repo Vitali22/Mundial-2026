@@ -143,6 +143,7 @@ button {
 #refresh-button {
   background: var(--accent);
   color: #06221f;
+  width: 100%;
 }
 
 #refresh-button:hover {
@@ -394,16 +395,17 @@ td:nth-child(2) {
   font-weight: 800;
 }
 
-.bracket {
+.finals-board {
   display: grid;
-  grid-template-columns: repeat(6, minmax(240px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 22px;
   overflow-x: auto;
   padding-bottom: 12px;
 }
 
-.round {
-  min-width: 240px;
+.bracket-column {
+  min-width: 280px;
+  position: relative;
 }
 
 .round-heading {
@@ -430,27 +432,47 @@ td:nth-child(2) {
   font-size: 1rem;
 }
 
-.round-matches {
+.bracket-lane {
   display: grid;
-  gap: 14px;
+  gap: 18px;
 }
 
-.match-card {
+.bracket-column:not(:last-child) .bracket-lane {
   position: relative;
-  padding: 14px;
 }
 
-.match-card::after {
+.bracket-column:not(:last-child) .bracket-lane::after {
+  content: "";
+  position: absolute;
+  top: 24px;
+  right: -11px;
+  bottom: 24px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, var(--line), transparent);
+}
+
+.bracket-card {
+  position: relative;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.05), rgba(45, 212, 191, 0.03)),
+    var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.bracket-card::after {
   content: "";
   position: absolute;
   top: 50%;
-  right: -21px;
-  width: 20px;
-  height: 2px;
+  right: -12px;
+  width: 12px;
+  height: 1px;
   background: var(--line);
 }
 
-.round:last-child .match-card::after {
+.bracket-column:last-child .bracket-card::after {
   display: none;
 }
 
@@ -787,17 +809,13 @@ body[data-theme="dark"] .status.en-vivo {
     grid-column: 1 / -1;
   }
 
-  .bracket {
+  .finals-board {
     grid-template-columns: 1fr;
     overflow: visible;
   }
 
-  .round {
+  .bracket-column {
     min-width: 0;
-  }
-
-  .match-card::after {
-    display: none;
   }
 
   .league-dashboard {

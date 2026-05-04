@@ -34,7 +34,7 @@ refreshButton.addEventListener("click", async () => {
   refreshButton.textContent = "Revisando...";
 
   try {
-    const response = await fetch("/api/refresh", { method: "POST" });
+    const response = await fetch(`/api/refresh/${activeTournament}`, { method: "POST" });
     const result = await response.json();
     showToast(result.message || "Revision completada.");
     await loadTournament(activeTournament);
@@ -42,7 +42,7 @@ refreshButton.addEventListener("click", async () => {
     showToast("No se pudo actualizar. Revisa el backend.");
   } finally {
     refreshButton.disabled = false;
-    refreshButton.textContent = "Actualizar datos";
+    refreshButton.textContent = "Actualizar torneo";
   }
 });
 
@@ -65,6 +65,7 @@ async function loadTournament(key) {
 function renderTournament(data) {
   eyebrow.textContent = `${data.label} / ${formatProvider(data.source)}`;
   title.textContent = `${data.format?.tableLabel || "Tabla"} y ${data.format?.finalLabel || "fase final"}`;
+  refreshButton.textContent = `Actualizar ${data.label}`;
   lastUpdate.textContent = data.updatedAt
     ? `Ultima actualizacion: ${formatDate(data.updatedAt)}`
     : "Ultima actualizacion: sin datos reales";
@@ -215,12 +216,12 @@ function renderFinals(rounds) {
   finalsContainer.innerHTML = rounds
     .map(
       (round, index) => `
-        <section class="round">
+        <section class="bracket-column">
           <div class="round-heading">
             <span>${index + 1}</span>
             <h3>${escapeHtml(round.label)}</h3>
           </div>
-          <div class="round-matches">
+          <div class="bracket-lane">
             ${round.matches.map((match, matchIndex) => renderMatchCard(match, matchIndex)).join("")}
           </div>
         </section>
@@ -236,7 +237,7 @@ function renderMatchCard(match, index) {
       : `${formatGoal(match.homeGoals)} - ${formatGoal(match.awayGoals)}`;
 
   return `
-    <article class="match-card">
+    <article class="bracket-card">
       <div class="match-topline">
         <span>Partido ${index + 1}</span>
         <span class="status ${match.status}">${formatStatus(match.status)}</span>
