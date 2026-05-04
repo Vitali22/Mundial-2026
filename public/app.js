@@ -241,6 +241,9 @@ function renderMatchCard(match, index) {
     ? `${formatGoal(match.aggregateHomeGoals)} - ${formatGoal(match.aggregateAwayGoals)}`
     : null;
   const metaLine = buildMatchMeta(match, aggregateText);
+  const scoreLabel = hasAggregate ? "Global" : "Marcador";
+  const homeScore = hasAggregate ? match.aggregateHomeGoals : match.homeGoals;
+  const awayScore = hasAggregate ? match.aggregateAwayGoals : match.awayGoals;
 
   return `
     <article class="bracket-card ${match.placeholder ? "placeholder" : ""}">
@@ -248,14 +251,15 @@ function renderMatchCard(match, index) {
         <span>Llave ${index + 1}</span>
         <span class="status ${match.status}">${formatStatus(match.status)}</span>
       </div>
+      <div class="score-context">${scoreLabel}</div>
       <div class="match-teams">
         <div class="match-team">
           ${renderBracketTeam(match.homeTeam, match.homeLogo)}
-          <span class="score">${formatGoal(match.homeGoals)}</span>
+          <span class="score">${formatGoal(homeScore)}</span>
         </div>
         <div class="match-team">
           ${renderBracketTeam(match.awayTeam, match.awayLogo)}
-          <span class="score">${formatGoal(match.awayGoals)}</span>
+          <span class="score">${formatGoal(awayScore)}</span>
         </div>
       </div>
       ${metaLine}
@@ -330,11 +334,7 @@ function renderTeamIcon(name, logo) {
 }
 
 function renderTeamName(name, logo) {
-  const image = logo
-    ? `<img class="team-logo" src="${escapeHtml(logo)}" alt="" loading="lazy" />`
-    : `<span class="flag">--</span>`;
-
-  return `<span class="team-cell">${image}${escapeHtml(name || "Por definir")}</span>`;
+  return `<span class="team-cell">${renderTeamIcon(name, logo)}${escapeHtml(name || "Por definir")}</span>`;
 }
 
 function groupLetter(index) {

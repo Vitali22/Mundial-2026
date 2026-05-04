@@ -11,7 +11,7 @@ const db = new DatabaseSync(path.join(__dirname, "database.db"));
 const PORT = Number(process.env.PORT || 3000);
 const COMPETITION_CACHE_MINUTES = Number(process.env.COMPETITION_CACHE_MINUTES || 180);
 const MOCK_SEED_VERSION = "world-cup-2026-v2";
-const API_CACHE_VERSION = "v8";
+const API_CACHE_VERSION = "v11";
 const TOURNAMENTS = {
   worldcup: {
     key: "worldcup",
@@ -1458,9 +1458,6 @@ function getBracketSchema(competition, existingRoundKeys = []) {
       { key: "tercer_lugar", label: "Tercer lugar", slots: 1 }
     ],
     champions: [
-      { key: "playoff", label: "Play-off", slots: 8 },
-      { key: "octavos", label: "Octavos de final", slots: 8 },
-      { key: "cuartos", label: "Cuartos de final", slots: 4 },
       { key: "semifinal", label: "Semifinales", slots: 2 },
       { key: "final", label: "Final", slots: 1 }
     ],
@@ -1642,7 +1639,7 @@ function buildVerifiedWorldCupSnapshot() {
       teams.map((team, index) => ({
         rank: index + 1,
         team,
-        logo: null,
+        logo: getWorldCupFlagLogo(team),
         played: 0,
         won: 0,
         drawn: 0,
@@ -1658,6 +1655,62 @@ function buildVerifiedWorldCupSnapshot() {
     fixtures: [],
     nextFixtures: []
   };
+}
+
+function getWorldCupFlagLogo(team) {
+  const countryCodes = {
+    "Mexico": "mx",
+    "South Korea": "kr",
+    "South Africa": "za",
+    "Czechia": "cz",
+    "Canada": "ca",
+    "Switzerland": "ch",
+    "Qatar": "qa",
+    "Bosnia-Herzegovina": "ba",
+    "Brazil": "br",
+    "Morocco": "ma",
+    "Scotland": "gb-sct",
+    "Haiti": "ht",
+    "USA": "us",
+    "Paraguay": "py",
+    "Australia": "au",
+    "Turkiye": "tr",
+    "Germany": "de",
+    "Ecuador": "ec",
+    "Ivory Coast": "ci",
+    "Curacao": "cw",
+    "Netherlands": "nl",
+    "Japan": "jp",
+    "Tunisia": "tn",
+    "Sweden": "se",
+    "Belgium": "be",
+    "Iran": "ir",
+    "Egypt": "eg",
+    "New Zealand": "nz",
+    "Spain": "es",
+    "Uruguay": "uy",
+    "Saudi Arabia": "sa",
+    "Cape Verde": "cv",
+    "France": "fr",
+    "Senegal": "sn",
+    "Norway": "no",
+    "Iraq": "iq",
+    "Argentina": "ar",
+    "Austria": "at",
+    "Algeria": "dz",
+    "Jordan": "jo",
+    "Portugal": "pt",
+    "Colombia": "co",
+    "Uzbekistan": "uz",
+    "DR Congo": "cd",
+    "England": "gb-eng",
+    "Croatia": "hr",
+    "Panama": "pa",
+    "Ghana": "gh"
+  };
+
+  const code = countryCodes[team];
+  return code ? `https://flagcdn.com/w40/${code}.png` : null;
 }
 
 function buildVerifiedLigaMxSnapshot() {
@@ -1754,7 +1807,7 @@ function row(rank, team, played, won, drawn, lost, goalsFor, goalsAgainst, goalD
   return {
     rank,
     team,
-    logo: null,
+    logo: getClubLogo(team),
     played,
     won,
     drawn,
@@ -1766,6 +1819,68 @@ function row(rank, team, played, won, drawn, lost, goalsFor, goalsAgainst, goalD
     form: "",
     group
   };
+}
+
+function getClubLogo(team) {
+  const domains = {
+    "Pumas UNAM": "pumas.mx",
+    "CD Guadalajara": "chivasdecorazon.com.mx",
+    "Cruz Azul": "cruzazulfc.com.mx",
+    "Pachuca": "tuzos.com.mx",
+    "Toluca": "tolucafc.com",
+    "Atlas": "atlasfc.com.mx",
+    "Tigres UANL": "tigres.com.mx",
+    "Club America": "clubamerica.com.mx",
+    "Club Tijuana": "xolos.com.mx",
+    "Leon": "clubleon.mx",
+    "Queretaro": "clubqueretaro.com",
+    "Juarez": "fcjuarez.com",
+    "Monterrey": "rayados.com",
+    "Atletico San Luis": "atleticodesanluis.mx",
+    "Necaxa": "clubnecaxa.mx",
+    "Mazatlan": "mazatlanfc.com",
+    "Puebla": "clubpuebla.com",
+    "Santos Laguna": "clubsantos.mx",
+    "Arsenal": "arsenal.com",
+    "Bayern Munich": "fcbayern.com",
+    "Liverpool": "liverpoolfc.com",
+    "Tottenham Hotspur": "tottenhamhotspur.com",
+    "Barcelona": "fcbarcelona.com",
+    "Chelsea": "chelseafc.com",
+    "Sporting CP": "sporting.pt",
+    "Manchester City": "mancity.com",
+    "Real Madrid": "realmadrid.com",
+    "Inter Milan": "inter.it",
+    "Paris Saint-Germain": "psg.fr",
+    "Newcastle United": "newcastleunited.com",
+    "Juventus": "juventus.com",
+    "Atletico Madrid": "atleticodemadrid.com",
+    "Atalanta": "atalanta.it",
+    "Bayer Leverkusen": "bayer04.de",
+    "Borussia Dortmund": "bvb.de",
+    "Olympiacos": "olympiacos.org",
+    "Club Brugge": "clubbrugge.be",
+    "Galatasaray": "galatasaray.org",
+    "AS Monaco": "asmonaco.com",
+    "Qarabag": "qarabagh.com",
+    "Bodo/Glimt": "glimt.no",
+    "Benfica": "slbenfica.pt",
+    "Marseille": "om.fr",
+    "Pafos": "pafosfc.com.cy",
+    "Union Saint-Gilloise": "rusg.brussels",
+    "PSV Eindhoven": "psv.nl",
+    "Athletic Bilbao": "athletic-club.eus",
+    "Napoli": "sscnapoli.it",
+    "Copenhagen": "fck.dk",
+    "Ajax": "ajax.nl",
+    "Eintracht Frankfurt": "eintracht.de",
+    "Slavia Prague": "slavia.cz",
+    "Villarreal": "villarrealcf.es",
+    "Kairat Almaty": "fckairat.com"
+  };
+
+  const domain = domains[team];
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null;
 }
 
 function seriesFixture(id, round, homeTeam, awayTeam, homeGoals, awayGoals, matchTime) {
