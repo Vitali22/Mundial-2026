@@ -565,41 +565,74 @@ td:nth-child(2) {
   display: none;
 }
 
-.leg-list {
+.score-formula {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--line);
 }
 
-.leg-list summary {
-  color: #5eead4;
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 900;
+.score-formula.single {
+  grid-template-columns: 1fr;
 }
 
-.leg-row {
+.formula-row {
   display: grid;
-  gap: 3px;
+  grid-template-columns: minmax(72px, 1fr) minmax(48px, auto) auto minmax(48px, auto) auto minmax(58px, auto);
+  align-items: center;
+  gap: 5px;
 }
 
-.leg-row span {
-  color: var(--accent);
-  font-size: 0.72rem;
+.formula-team {
+  overflow: hidden;
+  color: #edf4ff;
+  font-size: 0.76rem;
   font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.formula-box {
+  display: grid;
+  justify-items: center;
+  min-width: 48px;
+  min-height: 38px;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: rgba(26, 38, 56, 0.76);
+}
+
+.formula-box small {
+  color: #9fb0c5;
+  font-size: 0.58rem;
+  font-weight: 900;
+  line-height: 1;
   text-transform: uppercase;
 }
 
-.leg-row strong {
+.formula-box strong {
   color: #edf4ff;
-  font-size: 0.78rem;
-  line-height: 1.35;
+  font-size: 0.95rem;
+  line-height: 1.1;
 }
 
-.leg-row small {
+.formula-box em {
   color: #9fb0c5;
+  font-size: 0.58rem;
+  font-style: normal;
+  line-height: 1;
+}
+
+.formula-box.strong {
+  border-color: rgba(56, 189, 248, 0.72);
+  background: rgba(56, 189, 248, 0.16);
+}
+
+.formula-symbol {
+  color: #9fb0c5;
+  font-weight: 950;
 }
 
 .bracket-team-cell {

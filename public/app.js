@@ -241,9 +241,6 @@ function renderMatchCard(match, index) {
     ? `${formatGoal(match.aggregateHomeGoals)} - ${formatGoal(match.aggregateAwayGoals)}`
     : null;
   const metaLine = buildMatchMeta(match, aggregateText);
-  const scoreLabel = hasAggregate ? "Global" : "Marcador";
-  const homeScore = hasAggregate ? match.aggregateHomeGoals : match.homeGoals;
-  const awayScore = hasAggregate ? match.aggregateAwayGoals : match.awayGoals;
 
   return `
     <article class="bracket-card ${match.placeholder ? "placeholder" : ""}">
@@ -251,19 +248,18 @@ function renderMatchCard(match, index) {
         <span>Llave ${index + 1}</span>
         <span class="status ${match.status}">${formatStatus(match.status)}</span>
       </div>
-      <div class="score-context">${scoreLabel}</div>
       <div class="match-teams">
         <div class="match-team">
           ${renderBracketTeam(match.homeTeam, match.homeLogo)}
-          <span class="score">${formatGoal(homeScore)}</span>
+          <span class="score">${formatGoal(match.homeGoals)}</span>
         </div>
         <div class="match-team">
           ${renderBracketTeam(match.awayTeam, match.awayLogo)}
-          <span class="score">${formatGoal(awayScore)}</span>
+          <span class="score">${formatGoal(match.awayGoals)}</span>
         </div>
       </div>
       ${metaLine}
-      ${renderLegs(match.legs || [])}
+      ${renderScoreFormula(match)}
     </article>
   `;
 }
@@ -280,32 +276,73 @@ function buildMatchMeta(match, aggregateText) {
 
   return `
     <div class="match-meta">
-      ${aggregateText ? `<strong>Global ${aggregateText}</strong>` : `<strong>Serie en juego</strong>`}
+      ${aggregateText ? `<strong>Serie ${aggregateText}</strong>` : `<strong>Serie en juego</strong>`}
       <span>${escapeHtml(match.legLabel || "")}</span>
       <span>${match.matchTime ? formatDate(match.matchTime) : "Por definir"}</span>
     </div>
   `;
 }
 
-function renderLegs(legs) {
+function renderScoreFormula(match) {
+  if (match.placeholder) return "";
+
+  const legs = match.legs || [];
   if (!legs.length) return "";
 
+  if (legs.length <= 1) {
+    const leg = legs[0];
+    return `
+      <div class="score-formula single">
+        ${renderFormulaBox("Partido", `${formatGoal(leg.homeGoals)} - ${formatGoal(leg.awayGoals)}`, leg.matchTime)}
+      </div>
+    `;
+  }
+
   return `
-    <details class="leg-list">
-      <summary>Ida / vuelta</summary>
-      ${legs
-        .map(
-          (leg, index) => `
-            <div class="leg-row">
-              <span>${index === 0 ? "Ida" : "Vuelta"}</span>
-              <strong>${escapeHtml(leg.homeTeam)} ${formatGoal(leg.homeGoals)} - ${formatGoal(leg.awayGoals)} ${escapeHtml(leg.awayTeam)}</strong>
-              <small>${leg.matchTime ? formatDate(leg.matchTime) : "Por definir"}</small>
-            </div>
-          `
-        )
-        .join("")}
-    </details>
+    <div class="score-formula" aria-label="Marcador global por equipo">
+      ${renderTeamFormulaRow(match, match.homeTeam)}
+      ${renderTeamFormulaRow(match, match.awayTeam)}
+    </div>
   `;
+}
+
+function renderTeamFormulaRow(match, team) {
+  const legs = match.legs || [];
+  const firstLeg = legs[0];
+  const secondLeg = legs[1];
+  const firstLegGoals = getTeamGoalsInLeg(team, firstLeg);
+  const secondLegGoals = getTeamGoalsInLeg(team, secondLeg);
+  const aggregate =
+    team === match.homeTeam ? match.aggregateHomeGoals : match.aggregateAwayGoals;
+
+  return `
+    <div class="formula-row">
+      <span class="formula-team">${escapeHtml(team)}</span>
+      ${renderFormulaBox("Ida", formatGoal(firstLegGoals), firstLeg?.matchTime)}
+      <span class="formula-symbol">+</span>
+      ${renderFormulaBox("Vuelta", formatGoal(secondLegGoals), secondLeg?.matchTime)}
+      <span class="formula-symbol">=</span>
+      ${renderFormulaBox("Global", formatGoal(aggregate), null, true)}
+    </div>
+  `;
+}
+
+function renderFormulaBox(label, value, date, strong = false) {
+  const dateText = value === "-" && date ? formatShortDate(date) : "";
+  return `
+    <span class="formula-box ${strong ? "strong" : ""}">
+      <small>${escapeHtml(label)}</small>
+      <strong>${escapeHtml(value)}</strong>
+      ${dateText ? `<em>${escapeHtml(dateText)}</em>` : ""}
+    </span>
+  `;
+}
+
+function getTeamGoalsInLeg(team, leg) {
+  if (!leg) return null;
+  if (leg.homeGoals === null || leg.homeGoals === undefined) return null;
+  if (leg.awayGoals === null || leg.awayGoals === undefined) return null;
+  return leg.homeTeam === team ? leg.homeGoals : leg.awayGoals;
 }
 
 function renderBracketTeam(name, logo) {
@@ -353,6 +390,13 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("es-MX", {
     dateStyle: "medium",
     timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function formatShortDate(value) {
+  return new Intl.DateTimeFormat("es-MX", {
+    day: "numeric",
+    month: "short"
   }).format(new Date(value));
 }
 
