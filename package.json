@@ -1,0 +1,19 @@
+{
+  "name": "mundial-dashboard",
+  "version": "1.0.0",
+  "description": "Aplicacion web sencilla para ver grupos y llaves del Mundial con Node y SQLite.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "mundial",
+    "futbol",
+    "sqlite",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+}
