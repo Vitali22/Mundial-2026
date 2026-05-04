@@ -7,6 +7,9 @@ La app muestra tablas de fase de grupos y una llave de fase eliminatoria. Los da
 ## Caracteristicas
 
 - Barra lateral para cambiar entre fase de grupos y fase eliminatoria.
+- Modo claro/oscuro con preferencia guardada en el navegador.
+- Tarjetas visuales por grupo con barras de puntos.
+- Llave eliminatoria en columnas con tarjetas de partido.
 - Datos de ejemplo del Mundial 2026 con 12 grupos.
 - Base de datos local SQLite.
 - Boton para actualizar datos.

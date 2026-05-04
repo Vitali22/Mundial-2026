@@ -4,8 +4,18 @@ const refreshButton = document.querySelector("#refresh-button");
 const lastUpdate = document.querySelector("#last-update");
 const providerStatus = document.querySelector("#provider-status");
 const toast = document.querySelector("#toast");
+const themeToggle = document.querySelector("#theme-toggle");
 const navButtons = document.querySelectorAll(".nav-button");
 const views = document.querySelectorAll(".view");
+
+const savedTheme = localStorage.getItem("theme") || "light";
+applyTheme(savedTheme);
+
+themeToggle.addEventListener("click", () => {
+  const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(nextTheme);
+  localStorage.setItem("theme", nextTheme);
+});
 
 navButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -63,7 +73,16 @@ function renderGroups(groups) {
     .map(
       ([group, rows]) => `
         <article class="group-card">
-          <h3>Grupo ${escapeHtml(group)}</h3>
+          <div class="group-heading">
+            <div>
+              <span class="group-label">Grupo</span>
+              <h3>${escapeHtml(group)}</h3>
+            </div>
+            <span class="group-count">${rows.length} equipos</span>
+          </div>
+          <div class="team-bars">
+            ${rows.map(renderTeamBar).join("")}
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -89,6 +108,25 @@ function renderGroups(groups) {
       `
     )
     .join("");
+}
+
+function renderTeamBar(row) {
+  const maxPoints = 9;
+  const percent = Math.max(8, Math.round((row.points / maxPoints) * 100));
+
+  return `
+    <div class="team-bar-row">
+      <div class="team-bar-meta">
+        <span class="position-badge">${row.position}</span>
+        <span class="flag">${escapeHtml(row.flag || "--")}</span>
+        <strong>${escapeHtml(row.team)}</strong>
+      </div>
+      <div class="bar-track" aria-hidden="true">
+        <span style="width: ${percent}%"></span>
+      </div>
+      <span class="points-pill">${row.points} pts</span>
+    </div>
+  `;
 }
 
 function renderGroupRow(row) {
@@ -121,13 +159,16 @@ function renderBracket(rounds) {
 
   bracketContainer.innerHTML = rounds
     .map(
-      (round) => `
+      (round, roundIndex) => `
         <section class="round">
-          <h3>${escapeHtml(round.label)}</h3>
+          <div class="round-heading">
+            <span>${roundIndex + 1}</span>
+            <h3>${escapeHtml(round.label)}</h3>
+          </div>
           <div class="round-matches">
             ${
               round.matches.length
-                ? round.matches.map(renderMatchCard).join("")
+                ? round.matches.map((match, index) => renderMatchCard(match, index)).join("")
                 : `<p class="empty-state">Sin partidos</p>`
             }
           </div>
@@ -137,11 +178,16 @@ function renderBracket(rounds) {
     .join("");
 }
 
-function renderMatchCard(match) {
+function renderMatchCard(match, index) {
   const statusClass = match.status.replace(" ", "-");
+  const scoreText = `${formatGoal(match.homeGoals)} - ${formatGoal(match.awayGoals)}`;
 
   return `
     <article class="match-card">
+      <div class="match-topline">
+        <span>Partido ${index + 1}</span>
+        <span class="status ${statusClass}">${formatStatus(match.status)}</span>
+      </div>
       <div class="match-teams">
         <div class="match-team">
           <span>${escapeHtml(match.homeTeamName || "Por definir")}</span>
@@ -153,8 +199,8 @@ function renderMatchCard(match) {
         </div>
       </div>
       <div class="match-meta">
+        <strong>${scoreText}</strong>
         <span>${formatDate(match.matchTime)}</span>
-        <span class="status ${statusClass}">${formatStatus(match.status)}</span>
       </div>
     </article>
   `;
@@ -199,6 +245,12 @@ function showToast(message) {
   toast.textContent = message;
   toast.classList.add("show");
   window.setTimeout(() => toast.classList.remove("show"), 3200);
+}
+
+function applyTheme(theme) {
+  document.body.dataset.theme = theme;
+  themeToggle.textContent = theme === "dark" ? "Modo claro" : "Modo oscuro";
+  themeToggle.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
 }
 
 function escapeHtml(value) {
