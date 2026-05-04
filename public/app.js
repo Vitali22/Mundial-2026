@@ -1,18 +1,30 @@
-const groupsContainer = document.querySelector("#groups-container");
-const bracketContainer = document.querySelector("#bracket-container");
 const refreshButton = document.querySelector("#refresh-button");
 const lastUpdate = document.querySelector("#last-update");
-const providerStatus = document.querySelector("#provider-status");
 const toast = document.querySelector("#toast");
 const navButtons = document.querySelectorAll(".nav-button");
-const views = document.querySelectorAll(".view");
+const viewTabs = document.querySelectorAll(".view-tab");
+const panels = document.querySelectorAll(".tournament-panel");
+const title = document.querySelector("#tournament-title");
+const eyebrow = document.querySelector("#tournament-eyebrow");
+const formatNotes = document.querySelector("#format-notes");
+const tableContainer = document.querySelector("#table-container");
+const finalsContainer = document.querySelector("#finals-container");
+
+let activeTournament = "worldcup";
 
 navButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    const targetView = button.dataset.view;
-
+    activeTournament = button.dataset.tournament;
     navButtons.forEach((item) => item.classList.toggle("active", item === button));
-    views.forEach((view) => view.classList.toggle("active", view.id === targetView));
+    loadTournament(activeTournament);
+  });
+});
+
+viewTabs.forEach((button) => {
+  button.addEventListener("click", () => {
+    const target = button.dataset.panel;
+    viewTabs.forEach((item) => item.classList.toggle("active", item === button));
+    panels.forEach((panel) => panel.classList.toggle("active", panel.id === target));
   });
 });
 
@@ -24,7 +36,7 @@ refreshButton.addEventListener("click", async () => {
     const response = await fetch("/api/refresh", { method: "POST" });
     const result = await response.json();
     showToast(result.message || "Revision completada.");
-    await loadDashboard();
+    await loadTournament(activeTournament);
   } catch (error) {
     showToast("No se pudo actualizar. Revisa el backend.");
   } finally {
@@ -33,134 +45,146 @@ refreshButton.addEventListener("click", async () => {
   }
 });
 
-loadDashboard();
+loadTournament(activeTournament);
 
-async function loadDashboard() {
-  const [groupsResponse, bracketResponse, metaResponse] = await Promise.all([
-    fetch("/api/groups"),
-    fetch("/api/bracket"),
-    fetch("/api/meta")
-  ]);
+async function loadTournament(key) {
+  tableContainer.innerHTML = `<p class="empty-state">Cargando tabla...</p>`;
+  finalsContainer.innerHTML = `<p class="empty-state">Cargando fase final...</p>`;
 
-  const groups = await groupsResponse.json();
-  const bracket = await bracketResponse.json();
-  const meta = await metaResponse.json();
-
-  renderGroups(groups);
-  renderBracket(bracket);
-  renderMeta(meta);
+  try {
+    const response = await fetch(`/api/tournament/${key}`);
+    const data = await response.json();
+    renderTournament(data);
+  } catch (error) {
+    tableContainer.innerHTML = `<p class="empty-state">No se pudo cargar el torneo.</p>`;
+    finalsContainer.innerHTML = "";
+  }
 }
 
-function renderGroups(groups) {
-  const entries = Object.entries(groups);
+function renderTournament(data) {
+  eyebrow.textContent = `${data.label} / ${formatProvider(data.source)}`;
+  title.textContent = `${data.format?.tableLabel || "Tabla"} y ${data.format?.finalLabel || "fase final"}`;
+  lastUpdate.textContent = data.updatedAt
+    ? `Ultima actualizacion: ${formatDate(data.updatedAt)}`
+    : "Ultima actualizacion: sin datos reales";
 
-  if (entries.length === 0) {
-    groupsContainer.innerHTML = `<p class="empty-state">Todavia no hay grupos guardados.</p>`;
+  formatNotes.innerHTML = (data.format?.notes || [])
+    .map((note) => `<article class="metric-card"><p>${escapeHtml(note)}</p></article>`)
+    .join("");
+
+  renderTables(data);
+  renderFinals(data.bracket || []);
+}
+
+function renderTables(data) {
+  const groups = data.standings || [];
+  if (!groups.length) {
+    tableContainer.innerHTML = `<p class="empty-state">No hay tabla disponible todavia.</p>`;
     return;
   }
 
-  groupsContainer.innerHTML = entries
-    .map(
-      ([group, rows]) => `
-        <article class="group-card">
-          <div class="group-heading">
-            <div>
-              <span class="group-label">Grupo</span>
-              <h3>${escapeHtml(group)}</h3>
-            </div>
-            <span class="group-count">${rows.length} equipos</span>
-          </div>
-          <div class="team-bars">
-            ${rows.map(renderTeamBar).join("")}
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Pos</th>
-                  <th>Equipo</th>
-                  <th>PJ</th>
-                  <th>G</th>
-                  <th>E</th>
-                  <th>P</th>
-                  <th>GF</th>
-                  <th>GC</th>
-                  <th>DG</th>
-                  <th>Pts</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rows.map(renderGroupRow).join("")}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      `
-    )
-    .join("");
+  tableContainer.innerHTML = `
+    <div class="groups-grid">
+      ${groups
+        .map(
+          (rows, index) => `
+            <article class="group-card">
+              <div class="group-heading">
+                <div>
+                  <span class="group-label">${escapeHtml(rows[0]?.group || "Tabla")}</span>
+                  <h3>${data.key === "worldcup" ? groupLetter(index) : index + 1}</h3>
+                </div>
+                <span class="group-count">${rows.length} equipos</span>
+              </div>
+              <div class="team-bars">
+                ${rows.slice(0, 8).map(renderTeamBar).join("")}
+              </div>
+              ${renderCompetitionTable(rows)}
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 function renderTeamBar(row) {
-  const maxPoints = 9;
+  const maxPoints = Math.max(1, row.played * 3 || 9);
   const percent = Math.max(8, Math.round((row.points / maxPoints) * 100));
 
   return `
     <div class="team-bar-row">
       <div class="team-bar-meta">
-        <span class="position-badge">${row.position}</span>
-        <span class="flag">${escapeHtml(row.flag || "--")}</span>
-        <strong>${escapeHtml(row.team)}</strong>
+        <span class="position-badge">${row.rank}</span>
+        ${renderTeamName(row.team, row.logo)}
       </div>
       <div class="bar-track" aria-hidden="true">
         <span style="width: ${percent}%"></span>
       </div>
-      <span class="points-pill">${row.points} pts</span>
+      <span class="points-pill">${row.points || 0} pts</span>
     </div>
   `;
 }
 
-function renderGroupRow(row) {
+function renderCompetitionTable(rows) {
   return `
-    <tr>
-      <td>${row.position}</td>
-      <td>
-        <span class="team-cell">
-          <span class="flag">${escapeHtml(row.flag || "--")}</span>
-          ${escapeHtml(row.team)}
-        </span>
-      </td>
-      <td>${row.played}</td>
-      <td>${row.won}</td>
-      <td>${row.drawn}</td>
-      <td>${row.lost}</td>
-      <td>${row.goalsFor}</td>
-      <td>${row.goalsAgainst}</td>
-      <td>${row.goalDifference}</td>
-      <td><strong>${row.points}</strong></td>
-    </tr>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Pos</th>
+            <th>Equipo</th>
+            <th>PJ</th>
+            <th>G</th>
+            <th>E</th>
+            <th>P</th>
+            <th>GF</th>
+            <th>GC</th>
+            <th>DG</th>
+            <th>Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+                <tr>
+                  <td>${row.rank}</td>
+                  <td>${renderTeamName(row.team, row.logo)}</td>
+                  <td>${row.played || 0}</td>
+                  <td>${row.won || 0}</td>
+                  <td>${row.drawn || 0}</td>
+                  <td>${row.lost || 0}</td>
+                  <td>${row.goalsFor || 0}</td>
+                  <td>${row.goalsAgainst || 0}</td>
+                  <td>${row.goalDifference || 0}</td>
+                  <td><strong>${row.points || 0}</strong></td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 
-function renderBracket(rounds) {
+function renderFinals(rounds) {
   if (!rounds.length) {
-    bracketContainer.innerHTML = `<p class="empty-state">Todavia no hay partidos de eliminatoria guardados.</p>`;
+    finalsContainer.innerHTML = `<p class="empty-state">No hay fase final disponible todavia.</p>`;
     return;
   }
 
-  bracketContainer.innerHTML = rounds
+  finalsContainer.innerHTML = rounds
     .map(
-      (round, roundIndex) => `
+      (round, index) => `
         <section class="round">
           <div class="round-heading">
-            <span>${roundIndex + 1}</span>
+            <span>${index + 1}</span>
             <h3>${escapeHtml(round.label)}</h3>
           </div>
           <div class="round-matches">
-            ${
-              round.matches.length
-                ? round.matches.map((match, index) => renderMatchCard(match, index)).join("")
-                : `<p class="empty-state">Sin partidos</p>`
-            }
+            ${round.matches.map((match, matchIndex) => renderMatchCard(match, matchIndex)).join("")}
           </div>
         </section>
       `
@@ -169,45 +193,44 @@ function renderBracket(rounds) {
 }
 
 function renderMatchCard(match, index) {
-  const statusClass = match.status.replace(" ", "-");
-  const scoreText = `${formatGoal(match.homeGoals)} - ${formatGoal(match.awayGoals)}`;
-
   return `
     <article class="match-card">
       <div class="match-topline">
         <span>Partido ${index + 1}</span>
-        <span class="status ${statusClass}">${formatStatus(match.status)}</span>
+        <span class="status ${match.status}">${formatStatus(match.status)}</span>
       </div>
       <div class="match-teams">
         <div class="match-team">
-          <span>${escapeHtml(match.homeTeamName || "Por definir")}</span>
+          ${renderTeamName(match.homeTeam, match.homeLogo)}
           <span class="score">${formatGoal(match.homeGoals)}</span>
         </div>
         <div class="match-team">
-          <span>${escapeHtml(match.awayTeamName || "Por definir")}</span>
+          ${renderTeamName(match.awayTeam, match.awayLogo)}
           <span class="score">${formatGoal(match.awayGoals)}</span>
         </div>
       </div>
       <div class="match-meta">
-        <strong>${scoreText}</strong>
-        <span>${formatDate(match.matchTime)}</span>
+        <strong>${formatGoal(match.homeGoals)} - ${formatGoal(match.awayGoals)}</strong>
+        <span>${match.matchTime ? formatDate(match.matchTime) : "Por definir"}</span>
       </div>
     </article>
   `;
 }
 
-function renderMeta(meta) {
-  const updateText = meta.lastUpdate
-    ? formatDate(meta.lastUpdate)
-    : "sin actualizaciones";
+function renderTeamName(name, logo) {
+  const image = logo
+    ? `<img class="team-logo" src="${escapeHtml(logo)}" alt="" loading="lazy" />`
+    : `<span class="flag">--</span>`;
 
-  const providerText =
-    meta.provider === "api-football" && meta.apiConfigured
-      ? "Modo: API-FOOTBALL"
-      : "Modo: datos de ejemplo";
+  return `<span class="team-cell">${image}${escapeHtml(name || "Por definir")}</span>`;
+}
 
-  providerStatus.textContent = providerText;
-  lastUpdate.textContent = `Ultima actualizacion: ${updateText}`;
+function groupLetter(index) {
+  return String.fromCharCode(65 + index);
+}
+
+function formatProvider(source) {
+  return source === "thesportsdb" || source === "cache" ? "TheSportsDB" : "Ejemplo";
 }
 
 function formatGoal(value) {
@@ -234,7 +257,7 @@ function formatStatus(status) {
 function showToast(message) {
   toast.textContent = message;
   toast.classList.add("show");
-  window.setTimeout(() => toast.classList.remove("show"), 3200);
+  window.setTimeout(() => toast.classList.remove("show"), 3600);
 }
 
 function escapeHtml(value) {

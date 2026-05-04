@@ -1,50 +1,74 @@
-# Mundial Dashboard 2026
+# Futbol Dashboard
 
-Aplicacion web sencilla para visualizar informacion del Mundial 2026 con HTML, CSS, JavaScript, Node.js y SQLite.
+Aplicacion web sencilla para consultar datos de futbol con HTML, CSS, JavaScript, Node.js, SQLite y TheSportsDB.
 
-La app muestra tablas de fase de grupos y una llave de fase eliminatoria. Los datos se guardan en SQLite para evitar consultar la API externa en cada carga.
+La app muestra tres torneos en la barra lateral:
+
+- Mundial 2026
+- Champions League
+- Liga MX
+
+Dentro de cada torneo puedes cambiar entre:
+
+- `Tabla`
+- `Fase final`
 
 ## Caracteristicas
 
-- Barra lateral para cambiar entre fase de grupos y fase eliminatoria.
 - Interfaz en modo oscuro.
-- Tarjetas visuales por grupo con barras de puntos.
-- Llave eliminatoria en columnas con tarjetas de partido.
-- Secciones preparadas para Champions League y Liga MX.
-- Datos de ejemplo del Mundial 2026 con 12 grupos.
-- Base de datos local SQLite.
-- Boton para actualizar datos.
-- Cache para evitar peticiones innecesarias.
-- Integracion preparada para API-FOOTBALL.
+- Una sola API externa: TheSportsDB.
+- Cache local en SQLite para evitar peticiones innecesarias.
+- Tabla visual con barras de puntos.
+- Fase final, liguilla o eliminatoria segun el torneo.
 - Archivo `.bat` para abrir la app con doble clic en Windows.
-- `.gitignore` listo para no subir bases de datos ni secretos.
+- `.gitignore` listo para no subir `.env` ni bases de datos.
 
-## Estructura del proyecto
+## Fuente De Datos
+
+La app usa TheSportsDB v1.
 
 ```text
-.
-+-- public/
-|   +-- index.html
-|   +-- styles.css
-|   +-- app.js
-+-- .env.example
-+-- .gitignore
-+-- iniciar.bat
-+-- package.json
-+-- README.md
-+-- server.js
+https://www.thesportsdb.com/api/v1/json
 ```
 
-> `database.db` se crea automaticamente al iniciar la app y no debe subirse al repositorio.
+La key gratuita oficial es:
 
-## Requisitos
+```env
+THESPORTSDB_KEY=123
+```
 
-- Windows, macOS o Linux.
-- Node.js 24 o superior.
+IDs usados:
 
-Este proyecto usa SQLite incluido en Node.js moderno, por eso no necesita instalar paquetes externos para funcionar.
+| Torneo | ID TheSportsDB | Temporada |
+| --- | ---: | --- |
+| Mundial | `4429` | `2026` |
+| Champions League | `4480` | `2025-2026` |
+| Liga MX / Mexican Primera League | `4350` | `2025-2026` |
 
-## Inicio rapido en Windows
+## Configuracion
+
+Copia `.env.example` a `.env` o ejecuta:
+
+```text
+configurar-api.bat
+```
+
+Configuracion esperada:
+
+```env
+PORT=3001
+THESPORTSDB_KEY=123
+THESPORTSDB_BASE_URL=https://www.thesportsdb.com/api/v1/json
+THESPORTSDB_WORLD_CUP_LEAGUE_ID=4429
+THESPORTSDB_CHAMPIONS_LEAGUE_ID=4480
+THESPORTSDB_LIGA_MX_LEAGUE_ID=4350
+WORLD_CUP_SEASON=2026
+CHAMPIONS_SEASON=2025-2026
+LIGA_MX_SEASON=2025-2026
+COMPETITION_CACHE_MINUTES=180
+```
+
+## Inicio Rapido En Windows
 
 Haz doble clic en:
 
@@ -52,21 +76,13 @@ Haz doble clic en:
 iniciar.bat
 ```
 
-El archivo hace esto automaticamente:
-
-1. Entra a la carpeta del proyecto.
-2. Crea `.env` desde `.env.example` si todavia no existe.
-3. Usa el puerto `3001` por defecto.
-4. Abre el navegador.
-5. Inicia el servidor.
-
-Despues visita:
+Despues abre:
 
 ```text
 http://localhost:3001
 ```
 
-## Ejecutar manualmente
+## Ejecutar Manualmente
 
 En Windows:
 
@@ -83,50 +99,40 @@ cp .env.example .env
 PORT=3001 node server.js
 ```
 
-Luego abre:
-
-```text
-http://localhost:3001
-```
-
-## Configuracion de la API
-
-Por defecto la app usa datos de ejemplo:
-
-```env
-DATA_PROVIDER=mock
-```
-
-Para consultar una API real, edita `.env`:
-
-```env
-DATA_PROVIDER=api-football
-API_FOOTBALL_KEY=tu_api_key
-WORLD_CUP_SEASON=2026
-```
-
-No subas tu archivo `.env` a GitHub. Ya esta protegido por `.gitignore`.
-
-## Logica de actualizacion
-
-- La pagina lee desde SQLite.
-- No se llama a la API externa en cada carga.
-- `POST /api/refresh` revisa si corresponde actualizar.
-- Si un partido ya termino, se espera la duracion estimada del partido mas 30 minutos antes de consultar otra vez.
-- Si todavia no corresponde actualizar, se usan los datos guardados.
-
 ## Endpoints
 
 | Metodo | Ruta | Descripcion |
 | --- | --- | --- |
-| `GET` | `/api/groups` | Devuelve tablas de grupos calculadas desde SQLite. |
-| `GET` | `/api/bracket` | Devuelve partidos de fase eliminatoria. |
-| `GET` | `/api/meta` | Devuelve proveedor y ultima actualizacion. |
-| `POST` | `/api/refresh` | Revisa cache y consulta la API externa si corresponde. |
+| `GET` | `/api/tournament/worldcup` | Tabla y fase final del Mundial. |
+| `GET` | `/api/tournament/champions` | Tabla y knockout de Champions League. |
+| `GET` | `/api/tournament/ligamx` | Tabla y liguilla de Liga MX. |
+| `POST` | `/api/refresh` | Actualiza los torneos desde TheSportsDB y guarda cache. |
 
-## Preparado para GitHub
+## Formatos
 
-Antes de subir el proyecto, revisa que estos archivos no se agreguen:
+Mundial 2026:
+
+- 48 selecciones.
+- 12 grupos de cuatro.
+- Avanzan los dos primeros de cada grupo y los ocho mejores terceros.
+- Eliminatoria desde dieciseisavos hasta final, con partido por tercer lugar.
+
+Champions League:
+
+- Fase liga con 36 clubes en una sola tabla.
+- Puestos 1-8 avanzan directo a octavos.
+- Puestos 9-24 juegan play-off para entrar a octavos.
+- Despues sigue eliminatoria a ida y vuelta hasta semifinales, y final unica.
+
+Liga MX:
+
+- Torneo corto con tabla general.
+- Para Clausura 2026, por calendario mundialista, los ocho mejores avanzan directo a cuartos.
+- Cuartos, semifinales y final se juegan a ida y vuelta.
+
+## GitHub
+
+No subas estos archivos:
 
 ```text
 .env
@@ -135,11 +141,4 @@ database.db
 node_modules/
 ```
 
-Comandos sugeridos:
-
-```bash
-git init
-git status
-git add .
-git commit -m "Crear dashboard Mundial 2026"
-```
+Ya estan cubiertos por `.gitignore`.

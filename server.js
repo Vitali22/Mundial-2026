@@ -9,9 +9,38 @@ const publicDir = path.join(__dirname, "public");
 const db = new DatabaseSync(path.join(__dirname, "database.db"));
 
 const PORT = Number(process.env.PORT || 3000);
-const MATCH_DURATION_MINUTES = Number(process.env.MATCH_DURATION_MINUTES || 120);
-const REFRESH_GRACE_MINUTES = Number(process.env.REFRESH_GRACE_MINUTES || 30);
+const COMPETITION_CACHE_MINUTES = Number(process.env.COMPETITION_CACHE_MINUTES || 180);
 const MOCK_SEED_VERSION = "world-cup-2026-v2";
+const TOURNAMENTS = {
+  worldcup: {
+    key: "worldcup",
+    label: "Mundial 2026",
+    type: "worldcup",
+    sportsDbIdEnv: "THESPORTSDB_WORLD_CUP_LEAGUE_ID",
+    seasonEnv: "WORLD_CUP_SEASON",
+    defaultSportsDbId: "4429",
+    defaultSeason: "2026"
+  },
+  champions: {
+    key: "champions",
+    label: "Champions League",
+    type: "champions",
+    seasonEnv: "CHAMPIONS_SEASON",
+    sportsDbIdEnv: "THESPORTSDB_CHAMPIONS_LEAGUE_ID",
+    defaultSeason: "2025-2026",
+    defaultSportsDbId: "4480"
+  },
+  ligamx: {
+    key: "ligamx",
+    label: "Liga MX",
+    type: "ligamx",
+    seasonEnv: "LIGA_MX_SEASON",
+    sportsDbIdEnv: "THESPORTSDB_LIGA_MX_LEAGUE_ID",
+    defaultSeason: "2025-2026",
+    defaultSportsDbId: "4350"
+  }
+};
+const COMPETITIONS = TOURNAMENTS;
 
 initDatabase();
 seedMockDataIfNeeded();
@@ -39,11 +68,39 @@ const server = http.createServer(async (req, res) => {
         .get();
 
       sendJson(res, 200, {
-        provider: process.env.DATA_PROVIDER || "mock",
-        apiConfigured: Boolean(process.env.API_FOOTBALL_KEY),
+        provider: "thesportsdb",
+        apiConfigured: Boolean(process.env.THESPORTSDB_KEY),
         tournament: "FIFA World Cup 2026",
         lastUpdate: row.lastUpdate || null
       });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/api/competition/")) {
+      const key = url.pathname.split("/").pop();
+      const competition = TOURNAMENTS[key];
+
+      if (!competition) {
+        sendJson(res, 404, { message: "Competicion no encontrada." });
+        return;
+      }
+
+      const data = await getCompetitionData(competition);
+      sendJson(res, 200, data);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname.startsWith("/api/tournament/")) {
+      const key = url.pathname.split("/").pop();
+      const tournament = TOURNAMENTS[key];
+
+      if (!tournament) {
+        sendJson(res, 404, { message: "Torneo no encontrado." });
+        return;
+      }
+
+      const data = await getCompetitionData(tournament);
+      sendJson(res, 200, data);
       return;
     }
 
@@ -165,6 +222,12 @@ function initDatabase() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS api_cache (
+      key TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 }
 
@@ -174,7 +237,6 @@ function seedMockDataIfNeeded() {
     .prepare("SELECT value FROM app_meta WHERE key = 'mock_seed_version'")
     .get();
 
-  if (process.env.DATA_PROVIDER === "api-football" && count > 0) return;
   if (seedVersion && seedVersion.value === MOCK_SEED_VERSION) return;
 
   const now = new Date().toISOString();
@@ -564,199 +626,523 @@ function groupBracketByRound(matches) {
 }
 
 async function refreshMatches() {
-  if (process.env.DATA_PROVIDER === "api-football") {
-    return refreshFromExternalApi();
-  }
-
-  if (!process.env.API_FOOTBALL_KEY) {
-    return {
-      checkedAt: new Date().toISOString(),
-      refreshed: 0,
-      skipped: db.prepare("SELECT COUNT(*) AS total FROM matches").get().total,
-      message:
-        "La app esta en modo ejemplo. Para consultar la API real, configura DATA_PROVIDER=api-football y API_FOOTBALL_KEY en .env."
-    };
-  }
-
-  const matches = db.prepare("SELECT * FROM matches ORDER BY match_time").all();
-  const dueMatches = matches.filter((match) => shouldRefreshMatch(match));
-
-  if (dueMatches.length === 0) {
-    return {
-      checkedAt: new Date().toISOString(),
-      refreshed: 0,
-      skipped: matches.length,
-      message: "Los datos guardados siguen vigentes."
-    };
-  }
-
-  const provider = createDataProvider();
-  const updates = await provider.fetchMatches(dueMatches);
-  saveMatchUpdates(updates);
-
-  return {
-    checkedAt: new Date().toISOString(),
-    refreshed: updates.length,
-    skipped: matches.length - dueMatches.length,
-    message: updates.length
-      ? "Se actualizaron los partidos necesarios."
-      : "No hubo datos nuevos para guardar."
-  };
+  return refreshFromExternalApi();
 }
 
 async function refreshFromExternalApi() {
-  const matches = db.prepare("SELECT * FROM matches ORDER BY match_time").all();
-  const dueMatches = matches.filter((match) => shouldRefreshMatch(match));
+  const results = [];
+  let refreshed = 0;
+  const provider = new TheSportsDbProvider();
 
-  // Si la base solo tiene datos mock, esta ruta permite importar el torneo real.
-  const hasApiFixtures = matches.some((match) => /^\d+$/.test(String(match.id)));
-  if (dueMatches.length === 0 && hasApiFixtures) {
-    return {
-      checkedAt: new Date().toISOString(),
-      refreshed: 0,
-      skipped: matches.length,
-      message: "Los datos guardados siguen vigentes."
-    };
+  for (const competition of Object.values(TOURNAMENTS)) {
+    try {
+      await fetchAndCacheCompetitionData(competition, provider);
+      refreshed += 1;
+      results.push(competition.label);
+    } catch (error) {
+      results.push(`${competition.label} sin cambios (${error.message})`);
+    }
   }
-
-  const provider = new ApiFootballProvider();
-  const tournamentData = await provider.fetchTournament();
-  saveTournamentData(tournamentData);
 
   return {
     checkedAt: new Date().toISOString(),
-    refreshed: tournamentData.matches.length,
-    skipped: hasApiFixtures ? matches.length - dueMatches.length : 0,
-    message: "Se sincronizaron datos desde la API externa."
+    refreshed,
+    skipped: Object.keys(TOURNAMENTS).length - refreshed,
+    message: `Revision terminada: ${results.join(", ")}.`
   };
 }
 
-function shouldRefreshMatch(match) {
-  if (match.status === "en vivo") return true;
-
-  const now = Date.now();
-  const start = new Date(match.match_time).getTime();
-  const refreshAfter =
-    start + (MATCH_DURATION_MINUTES + REFRESH_GRACE_MINUTES) * 60 * 1000;
-  const lastUpdate = match.last_api_update
-    ? new Date(match.last_api_update).getTime()
-    : 0;
-
-  return now >= refreshAfter && lastUpdate < refreshAfter;
-}
-
-function createDataProvider() {
-  if (process.env.DATA_PROVIDER === "api-football") {
-    return new ApiFootballProvider();
-  }
-
-  return new MockProvider();
-}
-
-class MockProvider {
-  async fetchMatches(matches) {
-    const now = new Date().toISOString();
-    return matches.map((match) => ({
-      id: match.id,
-      homeGoals: match.home_goals,
-      awayGoals: match.away_goals,
-      status: match.status === "pendiente" ? "terminado" : match.status,
-      lastApiUpdate: now
-    }));
-  }
-}
-
-class ApiFootballProvider {
-  async fetchTournament() {
-    const fixtures = await this.fetchFixtures();
-    const now = new Date().toISOString();
-    const teamsById = new Map();
-
-    fixtures.forEach((item) => {
-      const home = item.teams.home;
-      const away = item.teams.away;
-
-      teamsById.set(String(home.id), {
-        id: String(home.id),
-        name: home.name,
-        group: inferGroupName(item.league.round),
-        flag: home.code || null
-      });
-
-      teamsById.set(String(away.id), {
-        id: String(away.id),
-        name: away.name,
-        group: inferGroupName(item.league.round),
-        flag: away.code || null
-      });
-    });
-
+async function getCompetitionData(competition) {
+  const cacheKey = getCompetitionCacheKey(competition);
+  const cached = getCache(cacheKey);
+  if (cached && !isCacheExpired(cached.updatedAt)) {
     return {
-      teams: [...teamsById.values()],
-      matches: fixtures.map((item) => ({
-        id: String(item.fixture.id),
-        stage: inferStage(item.league.round),
-        group: inferGroupName(item.league.round),
-        home: String(item.teams.home.id),
-        away: String(item.teams.away.id),
-        homeGoals: item.goals.home,
-        awayGoals: item.goals.away,
-        time: item.fixture.date,
-        status: normalizeApiFootballStatus(item.fixture.status.short),
-        lastApiUpdate: now
-      }))
+      ...JSON.parse(cached.payload),
+      source: "cache",
+      updatedAt: cached.updatedAt
     };
   }
 
-  async fetchMatches(matches) {
-    const fixtures = await this.fetchFixtures();
-    const fixtureById = new Map(fixtures.map((item) => [String(item.fixture.id), item]));
-    const now = new Date().toISOString();
-
-    return matches
-      .map((match) => {
-        const fixture = fixtureById.get(String(match.id));
-        if (!fixture) return null;
-
-        return {
-          id: match.id,
-          homeGoals: fixture.goals.home,
-          awayGoals: fixture.goals.away,
-          status: normalizeApiFootballStatus(fixture.fixture.status.short),
-          lastApiUpdate: now
-        };
-      })
-      .filter(Boolean);
-  }
-
-  async fetchFixtures() {
-    const apiKey = process.env.API_FOOTBALL_KEY;
-    if (!apiKey) {
-      throw new Error("Falta API_FOOTBALL_KEY en el archivo .env.");
+  try {
+    return await fetchAndCacheCompetitionData(competition, new TheSportsDbProvider());
+  } catch (error) {
+    if (cached) {
+      return {
+        ...JSON.parse(cached.payload),
+        source: "cache",
+        updatedAt: cached.updatedAt,
+        warning: "No se pudo consultar la API; se muestran datos guardados."
+      };
     }
 
-    const baseUrl = process.env.API_FOOTBALL_BASE_URL;
-    const host = process.env.API_FOOTBALL_HOST;
-    const league = process.env.WORLD_CUP_LEAGUE_ID;
-    const season = process.env.WORLD_CUP_SEASON;
+    return {
+      ...buildCompetitionMockData(competition),
+      warning: `No se pudo consultar la API: ${error.message}`
+    };
+  }
+}
 
-    const response = await fetch(
-      `${baseUrl}/fixtures?league=${league}&season=${season}`,
-      {
-        headers: {
-          "x-apisports-key": apiKey,
-          "x-rapidapi-host": host
-        }
-      }
+async function fetchAndCacheCompetitionData(competition, provider) {
+  const config = getCompetitionConfig(competition);
+  const apiData = await provider.fetchCompetition(config);
+  const payload = {
+    key: competition.key,
+    label: competition.label,
+    season: config.season,
+    sportsDbId: config.sportsDbId,
+    sportsDbSeason: config.sportsDbSeason,
+    source: "thesportsdb",
+    format: buildTournamentFormat(competition),
+    standings: apiData.standings,
+    nextFixtures: apiData.nextFixtures,
+    fixtures: apiData.fixtures,
+    bracket: buildFinalPhase(competition, apiData)
+  };
+  const updatedAt = new Date().toISOString();
+
+  setCache(getCompetitionCacheKey(competition), JSON.stringify(payload), updatedAt);
+  return { ...payload, updatedAt };
+}
+
+function getCompetitionConfig(competition) {
+  return {
+    season: process.env[competition.seasonEnv] || competition.defaultSeason,
+    sportsDbId:
+      process.env[competition.sportsDbIdEnv] || competition.defaultSportsDbId,
+    sportsDbSeason: process.env[competition.seasonEnv] || competition.defaultSeason
+  };
+}
+
+function getCompetitionCacheKey(competition) {
+  const config = getCompetitionConfig(competition);
+  return `competition:thesportsdb:${competition.key}:${config.sportsDbId}:${config.sportsDbSeason}`;
+}
+
+function getCache(key) {
+  const row = db
+    .prepare("SELECT payload, updated_at AS updatedAt FROM api_cache WHERE key = ?")
+    .get(key);
+  return row || null;
+}
+
+function setCache(key, payload, updatedAt) {
+  db.prepare(`
+    INSERT INTO api_cache (key, payload, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      payload = excluded.payload,
+      updated_at = excluded.updated_at
+  `).run(key, payload, updatedAt);
+}
+
+function createCompetitionProvider() {
+  return new TheSportsDbProvider();
+}
+
+function isCacheExpired(updatedAt) {
+  const updated = new Date(updatedAt).getTime();
+  const expiresAt = updated + COMPETITION_CACHE_MINUTES * 60 * 1000;
+  return Date.now() >= expiresAt;
+}
+
+function normalizeStandings(response) {
+  return response.flatMap((item) =>
+    (item.league.standings || []).map((groupRows) =>
+      groupRows.map((row) => ({
+        rank: row.rank,
+        team: row.team.name,
+        logo: row.team.logo,
+        played: row.all.played,
+        won: row.all.win,
+        drawn: row.all.draw,
+        lost: row.all.lose,
+        goalsFor: row.all.goals.for,
+        goalsAgainst: row.all.goals.against,
+        goalDifference: row.goalsDiff,
+        points: row.points,
+        form: row.form || "",
+        group: row.group || item.league.name
+      }))
+    )
+  );
+}
+
+function normalizeFixtures(fixtures) {
+  return fixtures
+    .map((item) => ({
+      id: String(item.fixture.id),
+      round: item.league.round,
+      homeTeam: item.teams.home.name,
+      awayTeam: item.teams.away.name,
+      homeLogo: item.teams.home.logo,
+      awayLogo: item.teams.away.logo,
+      homeGoals: item.goals.home,
+      awayGoals: item.goals.away,
+      matchTime: item.fixture.date,
+      status: normalizeApiFootballStatus(item.fixture.status.short)
+    }))
+    .sort((a, b) => new Date(a.matchTime) - new Date(b.matchTime));
+}
+
+function buildCompetitionMockData(competition) {
+  const config = getCompetitionConfig(competition);
+  const isChampions = competition.key === "champions";
+  const teams = isChampions
+    ? ["Real Madrid", "Manchester City", "Bayern Munich", "Paris Saint-Germain", "Barcelona", "Inter"]
+    : ["America", "Cruz Azul", "Tigres", "Monterrey", "Toluca", "Pumas"];
+
+  return {
+    key: competition.key,
+    label: competition.label,
+    season: config.season,
+    sportsDbId: config.sportsDbId,
+    sportsDbSeason: config.sportsDbSeason,
+    source: "mock",
+    updatedAt: null,
+    format: buildTournamentFormat(competition),
+    standings: [
+      teams.map((team, index) => ({
+        rank: index + 1,
+        team,
+        logo: null,
+        played: Math.max(0, 6 - index),
+        won: Math.max(0, 4 - index),
+        drawn: index % 2,
+        lost: Math.floor(index / 3),
+        goalsFor: 12 - index,
+        goalsAgainst: 5 + index,
+        goalDifference: 7 - index * 2,
+        points: 13 - index * 2,
+        form: index < 3 ? "W W D" : "D L W",
+        group: isChampions ? "Fase liga" : "Tabla general"
+      }))
+    ],
+    fixtures: teams.slice(0, 4).map((team, index) => ({
+      id: `${competition.key}-mock-${index + 1}`,
+      round: isChampions ? "League Stage" : "Jornada",
+      homeTeam: team,
+      awayTeam: teams[index + 2],
+      homeLogo: null,
+      awayLogo: null,
+      homeGoals: null,
+      awayGoals: null,
+      matchTime: new Date(Date.now() + (index + 1) * 86400000).toISOString(),
+      status: "pendiente"
+    })),
+    nextFixtures: teams.slice(0, 4).map((team, index) => ({
+      id: `${competition.key}-next-${index + 1}`,
+      round: isChampions ? "Proximo partido" : "Proxima jornada",
+      homeTeam: team,
+      awayTeam: teams[index + 2],
+      homeLogo: null,
+      awayLogo: null,
+      homeGoals: null,
+      awayGoals: null,
+      matchTime: new Date(Date.now() + (index + 1) * 86400000).toISOString(),
+      status: "pendiente"
+    })),
+    bracket: buildFinalPhase(competition, {
+      standings: [
+        teams.map((team, index) => ({
+          rank: index + 1,
+          team,
+          points: 13 - index * 2
+        }))
+      ],
+      fixtures: []
+    })
+  };
+}
+
+class TheSportsDbProvider {
+  async fetchCompetition(config) {
+    const seasonPayload = await this.request(
+      `/eventsseason.php?id=${config.sportsDbId}&s=${encodeURIComponent(config.sportsDbSeason)}`,
+      { optional: true }
+    );
+    const nextPayload = await this.request(
+      `/eventsnextleague.php?id=${config.sportsDbId}`
+    );
+    const standingsPayload = await this.request(
+      `/lookuptable.php?l=${config.sportsDbId}&s=${config.sportsDbSeason}`,
+      { optional: true }
     );
 
+    const seasonFixtures = normalizeTheSportsDbFixtures(seasonPayload.events || []);
+    const nextFixtures = normalizeTheSportsDbFixtures(nextPayload.events || []).sort(
+      (a, b) => new Date(a.matchTime) - new Date(b.matchTime)
+    );
+
+    return {
+      standings: normalizeTheSportsDbStandings(standingsPayload.table || []),
+      fixtures: seasonFixtures,
+      nextFixtures
+    };
+  }
+
+  async request(endpoint) {
+    const key = process.env.THESPORTSDB_KEY || "123";
+    const baseUrl =
+      process.env.THESPORTSDB_BASE_URL || "https://www.thesportsdb.com/api/v1/json";
+    const response = await fetch(`${baseUrl}/${key}${endpoint}`);
+
     if (!response.ok) {
-      throw new Error(`La API externa respondio con estado ${response.status}.`);
+      throw new Error(`TheSportsDB respondio con estado ${response.status}.`);
     }
 
-    const payload = await response.json();
-    return payload.response || [];
+    const body = await response.text();
+    if (!body.trim()) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(body);
+    } catch (error) {
+      if (options.optional) {
+        return {};
+      }
+
+      throw new Error(
+        `TheSportsDB no devolvio JSON para ${endpoint}. Revisa que THESPORTSDB_KEY sea solo el numero, por ejemplo 123.`
+      );
+    }
   }
+}
+
+function normalizeTheSportsDbStandings(rows) {
+  if (!rows.length) return [];
+
+  return [
+    rows.map((row, index) => ({
+      rank: Number(row.intRank || index + 1),
+      team: row.strTeam,
+      logo: row.strTeamBadge || null,
+      played: Number(row.intPlayed || 0),
+      won: Number(row.intWin || 0),
+      drawn: Number(row.intDraw || 0),
+      lost: Number(row.intLoss || 0),
+      goalsFor: Number(row.intGoalsFor || 0),
+      goalsAgainst: Number(row.intGoalsAgainst || 0),
+      goalDifference: Number(row.intGoalDifference || 0),
+      points: Number(row.intPoints || 0),
+      form: row.strForm || "",
+      group: row.strLeague || "Tabla"
+    }))
+  ];
+}
+
+function normalizeTheSportsDbFixtures(events) {
+  return events
+    .map((event) => {
+      const homeGoals = parseNullableNumber(event.intHomeScore);
+      const awayGoals = parseNullableNumber(event.intAwayScore);
+
+      return {
+        id: String(event.idEvent),
+        round: event.intRound ? `Ronda ${event.intRound}` : event.strLeague,
+        homeTeam: event.strHomeTeam,
+        awayTeam: event.strAwayTeam,
+        homeLogo: event.strHomeTeamBadge || null,
+        awayLogo: event.strAwayTeamBadge || null,
+        homeGoals,
+        awayGoals,
+        matchTime: buildTheSportsDbDate(event),
+        status: homeGoals === null || awayGoals === null ? "pendiente" : "terminado"
+      };
+    })
+    .sort((a, b) => new Date(b.matchTime) - new Date(a.matchTime));
+}
+
+function buildTheSportsDbDate(event) {
+  const date = event.dateEvent || new Date().toISOString().slice(0, 10);
+  const time = event.strTimestamp
+    ? event.strTimestamp
+    : `${date}T${event.strTime || "00:00:00"}Z`;
+
+  return new Date(time).toISOString();
+}
+
+function parseNullableNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  return Number(value);
+}
+
+function buildTournamentFormat(competition) {
+  if (competition.type === "worldcup") {
+    return {
+      tableLabel: "Grupos A-L",
+      finalLabel: "Fase eliminatoria",
+      notes: [
+        "48 selecciones en 12 grupos de cuatro.",
+        "Avanzan los dos primeros de cada grupo y los ocho mejores terceros.",
+        "La eliminatoria va de dieciseisavos a final, con partido por tercer lugar."
+      ]
+    };
+  }
+
+  if (competition.type === "champions") {
+    return {
+      tableLabel: "Fase liga",
+      finalLabel: "Knockout",
+      notes: [
+        "36 clubes compiten en una sola tabla.",
+        "Los puestos 1-8 avanzan directo a octavos.",
+        "Los puestos 9-24 juegan un play-off a doble partido por los otros lugares."
+      ]
+    };
+  }
+
+  return {
+    tableLabel: "Tabla general",
+    finalLabel: "Liguilla",
+    notes: [
+      "Liga MX usa torneos cortos con tabla general.",
+      "En Clausura 2026 el formato se simplifica: los ocho mejores pasan directo a cuartos.",
+      "Cuartos, semifinales y final se juegan a ida y vuelta."
+    ]
+  };
+}
+
+function buildFinalPhase(competition, apiData) {
+  const fixtures = (apiData.fixtures || []).filter((fixture) =>
+    isFinalPhaseRound(competition, fixture.round)
+  );
+
+  if (fixtures.length) {
+    return groupFixturesByRound(fixtures);
+  }
+
+  const rows = apiData.standings?.[0] || [];
+  if (competition.type === "champions") {
+    return buildChampionsProjection(rows);
+  }
+
+  if (competition.type === "ligamx") {
+    return buildLigaMxProjection(rows);
+  }
+
+  return buildWorldCupProjection();
+}
+
+function isFinalPhaseRound(competition, round = "") {
+  const value = String(round).toLowerCase();
+  if (competition.type === "worldcup") {
+    return /round of 32|round of 16|quarter|semi|third|final|dieciseis|octavos|cuartos|semifinal/.test(value);
+  }
+
+  if (competition.type === "champions") {
+    return /play.?off|round of 16|quarter|semi|final|knockout|octavos|cuartos|semifinal/.test(value);
+  }
+
+  return /play.?in|reclassification|quarter|semi|final|cuartos|semifinal|liguilla/.test(value);
+}
+
+function groupFixturesByRound(fixtures) {
+  const groups = new Map();
+  fixtures.forEach((fixture) => {
+    const round = fixture.round || "Fase final";
+    if (!groups.has(round)) groups.set(round, []);
+    groups.get(round).push(fixture);
+  });
+
+  return [...groups.entries()].map(([label, matches]) => ({
+    label,
+    matches: matches.sort((a, b) => new Date(a.matchTime) - new Date(b.matchTime))
+  }));
+}
+
+function buildChampionsProjection(rows) {
+  const byRank = Object.fromEntries(rows.map((row) => [row.rank, row]));
+  return [
+    {
+      label: "Directos a octavos",
+      matches: Array.from({ length: 8 }, (_, index) =>
+        placeholderMatch(`Seed ${index + 1}`, byRank[index + 1]?.team || `Puesto ${index + 1}`)
+      )
+    },
+    {
+      label: "Play-off 9-24",
+      matches: Array.from({ length: 8 }, (_, index) =>
+        placeholderMatch(
+          byRank[9 + index]?.team || `Puesto ${9 + index}`,
+          byRank[24 - index]?.team || `Puesto ${24 - index}`
+        )
+      )
+    },
+    {
+      label: "Octavos a final",
+      matches: [
+        placeholderMatch("Ganador play-off", "Top 8 sembrado"),
+        placeholderMatch("Ganador semifinal 1", "Ganador semifinal 2")
+      ]
+    }
+  ];
+}
+
+function buildLigaMxProjection(rows) {
+  const byRank = Object.fromEntries(rows.map((row) => [row.rank, row]));
+  return [
+    {
+      label: "Cuartos de final",
+      matches: [
+        placeholderMatch(byRank[1]?.team || "1°", byRank[8]?.team || "8°"),
+        placeholderMatch(byRank[2]?.team || "2°", byRank[7]?.team || "7°"),
+        placeholderMatch(byRank[3]?.team || "3°", byRank[6]?.team || "6°"),
+        placeholderMatch(byRank[4]?.team || "4°", byRank[5]?.team || "5°")
+      ]
+    },
+    {
+      label: "Semifinales",
+      matches: [
+        placeholderMatch("Ganador QF 1", "Ganador QF 4"),
+        placeholderMatch("Ganador QF 2", "Ganador QF 3")
+      ]
+    },
+    {
+      label: "Final",
+      matches: [placeholderMatch("Ganador SF 1", "Ganador SF 2")]
+    }
+  ];
+}
+
+function buildWorldCupProjection() {
+  return [
+    {
+      label: "Dieciseisavos",
+      matches: Array.from({ length: 16 }, (_, index) =>
+        placeholderMatch(`Clasificado ${index * 2 + 1}`, `Clasificado ${index * 2 + 2}`)
+      )
+    },
+    {
+      label: "Octavos",
+      matches: Array.from({ length: 8 }, (_, index) =>
+        placeholderMatch(`Ganador D32 ${index * 2 + 1}`, `Ganador D32 ${index * 2 + 2}`)
+      )
+    },
+    {
+      label: "Cuartos / Semis / Final",
+      matches: [
+        placeholderMatch("Ganador QF 1", "Ganador QF 2"),
+        placeholderMatch("Ganador SF 1", "Ganador SF 2"),
+        placeholderMatch("Perdedor SF 1", "Perdedor SF 2")
+      ]
+    }
+  ];
+}
+
+function placeholderMatch(homeTeam, awayTeam) {
+  return {
+    id: `${homeTeam}-${awayTeam}`,
+    round: "Proyeccion",
+    homeTeam,
+    awayTeam,
+    homeLogo: null,
+    awayLogo: null,
+    homeGoals: null,
+    awayGoals: null,
+    matchTime: null,
+    status: "pendiente"
+  };
 }
 
 function inferStage(round = "") {
