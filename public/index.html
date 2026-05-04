@@ -6,24 +6,26 @@
     <title>Mundial Dashboard</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
+  <body data-theme="dark">
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <p class="eyebrow">Mundial 2026</p>
-          <h1>Panel del torneo</h1>
+          <p class="eyebrow">Futbol dashboard</p>
+          <h1>Panel de torneos</h1>
         </div>
-
-        <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false">
-          Modo oscuro
-        </button>
 
         <nav class="side-nav" aria-label="Vistas principales">
           <button class="nav-button active" type="button" data-view="groups-view">
-            Fase de grupos
+            Mundial: grupos
           </button>
           <button class="nav-button" type="button" data-view="bracket-view">
-            Fase eliminatoria
+            Mundial: eliminatoria
+          </button>
+          <button class="nav-button" type="button" data-view="champions-view">
+            Champions League
+          </button>
+          <button class="nav-button" type="button" data-view="ligamx-view">
+            Liga MX
           </button>
         </nav>
 
@@ -53,6 +55,72 @@
             </div>
           </div>
           <div id="bracket-container" class="bracket" aria-live="polite"></div>
+        </section>
+
+        <section id="champions-view" class="section-block view">
+          <div class="section-title">
+            <div>
+              <p class="eyebrow">Europa / clubes</p>
+              <h2>Champions League</h2>
+            </div>
+          </div>
+          <div class="league-dashboard">
+            <article class="league-hero champions-card">
+              <div>
+                <p class="eyebrow">Vista preparada</p>
+                <h3>Tabla, calendario y eliminatorias</h3>
+              </div>
+              <span class="league-badge">UCL</span>
+            </article>
+            <article class="metric-card">
+              <span>Formato</span>
+              <strong>Fase liga</strong>
+              <p>Lista para mostrar posiciones generales y clasificados.</p>
+            </article>
+            <article class="metric-card">
+              <span>Partidos</span>
+              <strong>Calendario</strong>
+              <p>Espacio para proximos juegos, marcadores y estados.</p>
+            </article>
+            <article class="metric-card">
+              <span>Eliminatoria</span>
+              <strong>Knockout</strong>
+              <p>Bloques visuales para octavos, cuartos, semifinal y final.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="ligamx-view" class="section-block view">
+          <div class="section-title">
+            <div>
+              <p class="eyebrow">Mexico / clubes</p>
+              <h2>Liga MX</h2>
+            </div>
+          </div>
+          <div class="league-dashboard">
+            <article class="league-hero ligamx-card">
+              <div>
+                <p class="eyebrow">Vista preparada</p>
+                <h3>Tabla general y liguilla</h3>
+              </div>
+              <span class="league-badge">MX</span>
+            </article>
+            <article class="metric-card">
+              <span>Tabla</span>
+              <strong>General</strong>
+              <p>Preparada para puntos, diferencia de goles y posiciones.</p>
+            </article>
+            <article class="metric-card">
+              <span>Jornadas</span>
+              <strong>Resultados</strong>
+              <p>Espacio para ver partidos por fecha y marcador.</p>
+            </article>
+            <article class="metric-card">
+              <span>Finales</span>
+              <strong>Liguilla</strong>
+              <p>Seccion lista para cuartos, semifinales y final.</p>
+            </article>
+          </div>
         </section>
       </main>
     </div>

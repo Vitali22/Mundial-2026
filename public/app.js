@@ -4,18 +4,8 @@ const refreshButton = document.querySelector("#refresh-button");
 const lastUpdate = document.querySelector("#last-update");
 const providerStatus = document.querySelector("#provider-status");
 const toast = document.querySelector("#toast");
-const themeToggle = document.querySelector("#theme-toggle");
 const navButtons = document.querySelectorAll(".nav-button");
 const views = document.querySelectorAll(".view");
-
-const savedTheme = localStorage.getItem("theme") || "light";
-applyTheme(savedTheme);
-
-themeToggle.addEventListener("click", () => {
-  const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
-  applyTheme(nextTheme);
-  localStorage.setItem("theme", nextTheme);
-});
 
 navButtons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -245,12 +235,6 @@ function showToast(message) {
   toast.textContent = message;
   toast.classList.add("show");
   window.setTimeout(() => toast.classList.remove("show"), 3200);
-}
-
-function applyTheme(theme) {
-  document.body.dataset.theme = theme;
-  themeToggle.textContent = theme === "dark" ? "Modo claro" : "Modo oscuro";
-  themeToggle.setAttribute("aria-pressed", theme === "dark" ? "true" : "false");
 }
 
 function escapeHtml(value) {
